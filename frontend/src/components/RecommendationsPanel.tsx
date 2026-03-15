@@ -1,10 +1,12 @@
 import React from "react";
 import { Star, MapPin } from "lucide-react";
+import { Recommendation } from "./RecommendationPin3D";
 
 interface RecommendationsPanelProps {
-    recommendations: any[];
-    onSelectRecommendation?: (rec: any) => void;
-    profileData?: any;
+    recommendations: Recommendation[];
+    onSelectRecommendation?: (rec: Recommendation) => void;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    profileData?: Record<string, any>;
 }
 
 export default function RecommendationsPanel({ recommendations, onSelectRecommendation, profileData }: RecommendationsPanelProps) {

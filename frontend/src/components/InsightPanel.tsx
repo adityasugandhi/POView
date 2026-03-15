@@ -3,6 +3,7 @@ import React from "react";
 import { MapPin, Coffee, Utensils, Train, Shield, DollarSign, Building } from "lucide-react";
 
 // Lucide mapping specifically requested as emojis are forbidden
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
 const IconMap: Record<string, any> = {
     waterfront: MapPin,
     dining: Utensils,
@@ -17,7 +18,8 @@ const IconMap: Record<string, any> = {
     default: MapPin
 };
 
-export default function InsightPanel({ profileData }: { profileData: any }) {
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+export default function InsightPanel({ profileData }: { profileData: Record<string, any> }) {
     if (!profileData) return (
         <div className="p-8 text-white/50 h-full flex flex-col justify-center items-center text-center bg-black/40 backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-3xl">
             <Building className="w-16 h-16 text-white/20 mb-6 drop-shadow-md inline-block" />
@@ -58,7 +60,8 @@ export default function InsightPanel({ profileData }: { profileData: any }) {
             <div className="mb-10">
                 <h2 className="text-sm uppercase tracking-widest text-white/60 font-semibold mb-4">Lifestyle Scores</h2>
                 <div className="space-y-4">
-                    {Object.entries(profileData.scores).map(([key, scoreObj]: any) => (
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    {Object.entries(profileData.scores).map(([key, scoreObj]: [string, any]) => (
                         <div key={key} className="flex flex-col bg-white/5 border border-white/10 p-5 rounded-2xl transition-all hover:bg-white/10">
                             <div className="flex justify-between items-center mb-2">
                                 <span className="capitalize font-medium text-white tracking-wide">{key.replace('_', ' ')}</span>
@@ -76,7 +79,8 @@ export default function InsightPanel({ profileData }: { profileData: any }) {
             <div className="mb-10">
                 <h2 className="text-sm uppercase tracking-widest text-white/60 font-semibold mb-4">Highlights</h2>
                 <div className="space-y-5">
-                    {profileData.highlights.map((hlt: any, idx: number) => {
+                    {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
+                    {profileData.highlights.map((hlt: Record<string, any>, idx: number) => {
                         const Icon = IconMap[hlt.icon_identifier] || IconMap.default;
                         return (
                             <div key={idx} className="flex items-start space-x-4 bg-white/5 border border-white/10 p-5 rounded-2xl transition hover:bg-white/10">

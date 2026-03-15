@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback } from "react";
-import { MapPin, Search, Navigation, RotateCcw, ChevronDown, Loader2 } from "lucide-react";
+import { MapPin, Search, Navigation, RotateCcw, Loader2 } from "lucide-react";
 import axios from "axios";
 
 export interface DefaultLocation {
@@ -80,7 +80,7 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
   // Autocomplete debounce
   useEffect(() => {
     if (!query.trim()) {
-      setSuggestions([]);
+      if (suggestions.length > 0) setSuggestions([]);
       return;
     }
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -97,6 +97,7 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
     return () => {
       if (debounceRef.current) clearTimeout(debounceRef.current);
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [query]);
 
   const selectPlace = useCallback(

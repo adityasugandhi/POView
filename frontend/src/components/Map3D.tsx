@@ -1,8 +1,8 @@
 "use client";
 import React, { useMemo } from "react";
 import { Viewer, CameraFlyTo, Cesium3DTileset, Entity, PolylineGraphics, PointGraphics, useCesium } from "resium";
-import { Cartesian3, Cartesian2, Rectangle, Math as CesiumMath, Color, SceneTransforms } from "cesium";
-import RecommendationPin3D from "./RecommendationPin3D";
+import { Cartesian3, Rectangle, Math as CesiumMath, Color } from "cesium";
+import RecommendationPin3D, { Recommendation } from "./RecommendationPin3D";
 
 interface CameraWaypoint {
     label: string;
@@ -22,8 +22,8 @@ interface Map3DProps {
         high: { latitude: number; longitude: number };
     };
     location?: { lat: number; lng: number };
-    recommendations?: any[];
-    selectedRecommendation?: any;
+    recommendations?: Recommendation[];
+    selectedRecommendation?: Recommendation;
     recenterTrigger?: number;
     layersVisible?: boolean;
     weatherState?: string;
@@ -39,6 +39,7 @@ const WeatherEffects = ({ weatherState }: { weatherState?: string }) => {
         if (!scene) return;
 
         // Reset defaults
+        // eslint-disable-next-line react-hooks/immutability
         scene.fog.enabled = true;
         scene.fog.density = 0.0002;
         if (scene.skyAtmosphere) {
@@ -176,17 +177,20 @@ export default function Map3D({ viewport, location, recommendations = [], select
     };
 
     const handleZoomIn = () => {
-        const viewer = (window as any).cesiumViewer;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const viewer = (window as unknown as Record<string, any>).cesiumViewer;
         if (viewer) viewer.camera.zoomIn(500);
     };
 
     const handleZoomOut = () => {
-        const viewer = (window as any).cesiumViewer;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const viewer = (window as unknown as Record<string, any>).cesiumViewer;
         if (viewer) viewer.camera.zoomOut(500);
     };
 
     const handleResetCompass = () => {
-        const viewer = (window as any).cesiumViewer;
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const viewer = (window as unknown as Record<string, any>).cesiumViewer;
         if (viewer) {
             const currentPosition = viewer.camera.position.clone();
             const currentPitch = viewer.camera.pitch;
@@ -215,9 +219,9 @@ export default function Map3D({ viewport, location, recommendations = [], select
                 navigationHelpButton={false}
                 selectionIndicator={false}
                 infoBox={false}
-                ref={(e: any) => {
+                ref={(e: { cesiumElement?: unknown } | null) => {
                     if (e && e.cesiumElement) {
-                        (window as any).cesiumViewer = e.cesiumElement;
+                        (window as unknown as Record<string, unknown>).cesiumViewer = e.cesiumElement;
                     }
                 }}
             >
@@ -237,7 +241,7 @@ export default function Map3D({ viewport, location, recommendations = [], select
 
                 {layersVisible && recommendations.map((rec, index) => {
                     if (!rec.lat || !rec.lng) return null;
-                    const pathPositions = getPolylinePositions(rec.routingPath);
+                    const pathPositions = rec.routingPath ? getPolylinePositions(rec.routingPath) : null;
                     return (
                         <React.Fragment key={`rec-${index}`}>
                             {/* 3D Anchor Point */}

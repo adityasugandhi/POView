@@ -5,15 +5,15 @@ import InsightPanel from "@/components/InsightPanel";
 import SearchBox from "@/components/SearchBox";
 import RecommendationsPanel from "@/components/RecommendationsPanel";
 import LandingPage from "@/components/LandingPage";
+import { Recommendation } from "@/components/RecommendationPin3D";
 import { DefaultLocation, getStoredLocation } from "@/components/LocationSelector";
-import VoiceAssistant from "@/components/VoiceAssistant";
 import axios from "axios";
 import { Ion } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
 
 // Set Cesium base URL to public folder copies
 if (typeof window !== "undefined") {
-  (window as any).CESIUM_BASE_URL = "/cesium";
+  (window as unknown as Record<string, string>).CESIUM_BASE_URL = "/cesium";
   Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_ION_TOKEN || "";
 }
 
@@ -33,15 +33,16 @@ interface CameraWaypoint {
 }
 
 export default function Home() {
-  const [profileData, setProfileData] = useState<any>(null);
-  const [viewport, setViewport] = useState<any>(null);
-  const [location, setLocation] = useState<any>(null);
-  const [recommendations, setRecommendations] = useState<any[]>([]);
-  const [selectedRecommendation, setSelectedRecommendation] = useState<any>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const [profileData, setProfileData] = useState<Record<string, any> | null>(null);
+  const [viewport, setViewport] = useState<{ low: { latitude: number; longitude: number }; high: { latitude: number; longitude: number } } | null>(null);
+  const [location, setLocation] = useState<{ lat: number; lng: number } | null>(null);
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [selectedRecommendation, setSelectedRecommendation] = useState<Recommendation | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [recenterTrigger, setRecenterTrigger] = useState(0);
-  const [layersVisible, setLayersVisible] = useState(true);
+  const [_layersVisible] = useState(true);
 
   // Landing Page State
   const [hasStarted, setHasStarted] = useState(false);
@@ -89,7 +90,8 @@ export default function Home() {
       ]);
 
       if (proximityRes.data && proximityRes.data.results) {
-        setRecommendations(proximityRes.data.results.map((res: any) => ({
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        setRecommendations(proximityRes.data.results.map((res: Record<string, any>) => ({
           ...res.metadata,
           lat: res.coordinates[0],
           lng: res.coordinates[1],
@@ -123,8 +125,9 @@ export default function Home() {
         setError("Failed to retrieve primary neighborhood profile.");
       }
 
-    } catch (err: any) {
-      setError(err.response?.data?.detail || err.message || "An unexpected error occurred.");
+    } catch (err: unknown) {
+      const axiosErr = err as { response?: { data?: { detail?: string } }; message?: string };
+      setError(axiosErr.response?.data?.detail || axiosErr.message || "An unexpected error occurred.");
     } finally {
       setLoading(false);
     }
@@ -145,42 +148,6 @@ export default function Home() {
     setIsDroneFlying(false);
     if (droneTimerRef.current) clearTimeout(droneTimerRef.current);
   };
-
-  const handleVoiceSearchResult = useCallback((data: {
-    profileData: any;
-    viewport: any;
-    location: any;
-    weather: any;
-    droneWaypoints: any[];
-    recommendations: any[];
-  }) => {
-    // Merge voice results into existing state (same pipeline as text search)
-    if (data.profileData) {
-      setProfileData(data.profileData);
-    }
-    if (data.viewport) {
-      setViewport(data.viewport);
-    }
-    if (data.location) {
-      setLocation({ lat: data.location.lat, lng: data.location.lng });
-    }
-    if (data.weather && data.weather.render_state) {
-      setWeatherState(data.weather.render_state);
-    }
-    if (data.droneWaypoints && data.droneWaypoints.length > 0) {
-      setDroneWaypoints(data.droneWaypoints);
-    }
-    if (data.recommendations && data.recommendations.length > 0) {
-      setRecommendations(data.recommendations.map((rec: any) => ({
-        name: rec.name,
-        rating: rec.rating,
-        description: rec.description,
-        lat: rec.lat,
-        lng: rec.lng,
-        routingPath: [],
-      })));
-    }
-  }, []);
 
   const handleDroneTour = useCallback(() => {
     if (droneWaypoints.length === 0 || isDroneFlying) return;
@@ -219,12 +186,12 @@ export default function Home() {
       {/* 3D Map Viewport Background */}
       <div className="absolute inset-0 z-0">
         <Map3D
-          viewport={viewport}
-          location={location}
+          viewport={viewport ?? undefined}
+          location={location ?? undefined}
           recommendations={recommendations}
-          selectedRecommendation={selectedRecommendation}
+          selectedRecommendation={selectedRecommendation ?? undefined}
           recenterTrigger={recenterTrigger}
-          layersVisible={layersVisible}
+          layersVisible={_layersVisible}
           weatherState={weatherState}
           droneWaypoint={activeDroneWaypoint ?? undefined}
         />
@@ -289,7 +256,7 @@ export default function Home() {
               onRecenter={handleRecenter}
               onClear={handleClear}
               isAnalyzing={loading}
-              layersVisible={layersVisible}
+              layersVisible={_layersVisible}
             />
             {error && <p className="text-red-400 text-sm px-2 drop-shadow-md font-medium">{error}</p>}
           </div>
@@ -311,19 +278,13 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Voice Assistant */}
-        <VoiceAssistant
-          onSearchResult={handleVoiceSearchResult}
-          onDroneTourStart={handleDroneTour}
-        />
-
         {/* Right Floating Recommendations Panel */}
         {recommendations && recommendations.length > 0 && (
           <div className="absolute inset-y-6 right-6 w-[400px] z-10 hidden lg:flex flex-col">
             <RecommendationsPanel
               recommendations={recommendations}
               onSelectRecommendation={setSelectedRecommendation}
-              profileData={profileData}
+              profileData={profileData ?? undefined}
             />
           </div>
         )}

@@ -4,18 +4,21 @@ import { useCesium } from "resium";
 import { Cartesian3, SceneTransforms } from "cesium";
 import { PinContainer } from "@/components/ui/3d-pin";
 
+export interface Recommendation {
+  name: string;
+  rating: number;
+  description?: string;
+  lat: number;
+  lng: number;
+  routingPath?: number[][];
+}
+
 interface RecommendationPin3DProps {
-  recommendation: {
-    name: string;
-    rating: number;
-    description?: string;
-    lat: number;
-    lng: number;
-  };
+  recommendation: Recommendation;
   index: number;
 }
 
-const RecommendationPin3D = ({ recommendation, index }: RecommendationPin3DProps) => {
+const RecommendationPin3D = ({ recommendation }: RecommendationPin3DProps) => {
   const { scene } = useCesium();
   const overlayRef = useRef<HTMLDivElement>(null);
   const [isVisible, setIsVisible] = useState(false);
