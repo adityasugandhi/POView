@@ -2,7 +2,8 @@
 
 import React from 'react';
 import dynamic from 'next/dynamic';
-import { ArrowRight } from 'lucide-react';
+import Link from 'next/link';
+import { ArrowRight, Sparkles, BookOpen } from 'lucide-react';
 import LocationSelector, { DefaultLocation } from '@/components/LocationSelector';
 
 const Globe = dynamic(
@@ -24,6 +25,31 @@ export default function LandingPage({ onStart, defaultLocation, onLocationChange
 
     return (
         <div className="absolute inset-0 z-50 flex flex-col items-center justify-center bg-black/40 backdrop-blur-3xl">
+            {/* Navbar */}
+            <nav className="absolute top-0 left-0 right-0 z-50 flex items-center justify-between px-6 py-4">
+                <div className="flex items-center space-x-2 text-white font-bold text-lg tracking-tight">
+                    <Sparkles className="w-5 h-5 text-cyan-400" />
+                    <span>POView</span>
+                </div>
+                <div className="flex items-center space-x-4">
+                    <Link
+                        href="/demo"
+                        className="inline-flex items-center space-x-2 rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 backdrop-blur-md transition-all hover:bg-white/10 hover:text-white"
+                    >
+                        <BookOpen className="w-4 h-4" />
+                        <span>Docs</span>
+                    </Link>
+                    <a
+                        href="https://github.com/adityasugandhi/POView"
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center rounded-full border border-white/10 bg-white/5 px-4 py-2 text-sm text-white/70 backdrop-blur-md transition-all hover:bg-white/10 hover:text-white"
+                    >
+                        GitHub
+                    </a>
+                </div>
+            </nav>
+
             {/* Ambient Background Glow */}
             <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[600px] h-[600px] bg-cyan-500/10 rounded-full blur-[120px] pointer-events-none"></div>
 
