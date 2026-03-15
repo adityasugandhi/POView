@@ -25,7 +25,7 @@ const EXAMPLE_SEARCHES = [
     { label: "Williamsburg Nightlife", location: "Williamsburg, Brooklyn, NY", placeId: "ChIJQSrBBv1bwokRbNfFHCnyeYI", intent: "Best bars and nightlife scene" },
 ];
 
-export default function SearchBox({ onSearch, onRecenter, onClear, isAnalyzing, layersVisible }: SearchBoxProps) {
+export default function SearchBox({ onSearch, onRecenter, onClear, isAnalyzing }: SearchBoxProps) {
     const [inputValue, setInputValue] = useState("");
     const [selectedPlaceId, setSelectedPlaceId] = useState("");
     const [intentValue, setIntentValue] = useState("");
@@ -33,6 +33,18 @@ export default function SearchBox({ onSearch, onRecenter, onClear, isAnalyzing, 
     const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
     const [isOpen, setIsOpen] = useState(false);
     const wrapperRef = useRef<HTMLDivElement>(null);
+
+    const fetchSuggestions = async (query: string) => {
+        try {
+            const res = await fetch(`http://localhost:8000/api/autocomplete?input=${encodeURIComponent(query)}`);
+            if (res.ok) {
+                const data = await res.json();
+                setSuggestions(data.suggestions || []);
+            }
+        } catch (error) {
+            console.error("Failed to fetch autocomplete predictions:", error);
+        }
+    };
 
     useEffect(() => {
         const timeoutId = setTimeout(() => {
@@ -54,18 +66,6 @@ export default function SearchBox({ onSearch, onRecenter, onClear, isAnalyzing, 
         document.addEventListener("mousedown", handleClickOutside);
         return () => document.removeEventListener("mousedown", handleClickOutside);
     }, []);
-
-    const fetchSuggestions = async (query: string) => {
-        try {
-            const res = await fetch(`http://localhost:8000/api/autocomplete?input=${encodeURIComponent(query)}`);
-            if (res.ok) {
-                const data = await res.json();
-                setSuggestions(data.suggestions || []);
-            }
-        } catch (error) {
-            console.error("Failed to fetch autocomplete predictions:", error);
-        }
-    };
 
     const handleSelect = (placeId: string, text: string) => {
         setInputValue(text);
