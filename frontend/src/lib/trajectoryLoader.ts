@@ -9,16 +9,13 @@
  * Also computes a SampledProperty for heading and pitch.
  */
 
-import type { NarrationTimeline, TrajectoryTimestamp } from "@/types/simulation";
-
-// We need to use Cesium types at runtime without importing the heavy library at build time
-type CesiumViewer = any;
+import type { NarrationTimeline } from "@/types/simulation";
 
 export interface TrajectorySpline {
-  positionProperty: any; // Cesium.SampledPositionProperty
-  headingProperty: any; // Cesium.SampledProperty(Number)
-  pitchProperty: any; // Cesium.SampledProperty(Number)
-  startJulianDate: any; // Cesium.JulianDate
+  positionProperty: { getValue(date: unknown): unknown };
+  headingProperty: { getValue(date: unknown): number | undefined };
+  pitchProperty: { getValue(date: unknown): number | undefined };
+  startJulianDate: unknown;
   totalDurationSeconds: number;
 }
 
@@ -28,9 +25,10 @@ export interface TrajectorySpline {
  */
 export function loadTrajectory(
   timeline: NarrationTimeline,
-  viewer: CesiumViewer
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  viewer: CesiumViewer,
 ): TrajectorySpline | null {
-  const Cesium = (window as any).Cesium;
+  const Cesium = window.Cesium;
   if (!Cesium) {
     console.error("[TrajectoryLoader] Cesium not available on window");
     return null;
@@ -38,7 +36,9 @@ export function loadTrajectory(
 
   const timestamps = timeline.trajectory_timestamps;
   if (!timestamps || timestamps.length === 0) {
-    console.warn("[TrajectoryLoader] No trajectory timestamps in timeline, using waypoint fallback");
+    console.warn(
+      "[TrajectoryLoader] No trajectory timestamps in timeline, using waypoint fallback",
+    );
     return loadFromWaypoints(timeline, Cesium);
   }
 
@@ -69,14 +69,10 @@ export function loadTrajectory(
     const julianTime = Cesium.JulianDate.addSeconds(
       startJulianDate,
       ts.time_s,
-      new Cesium.JulianDate()
+      new Cesium.JulianDate(),
     );
 
-    const cartesian = Cesium.Cartesian3.fromDegrees(
-      ts.lng,
-      ts.lat,
-      ts.alt
-    );
+    const cartesian = Cesium.Cartesian3.fromDegrees(ts.lng, ts.lat, ts.alt);
 
     positionProperty.addSample(julianTime, cartesian);
     headingProperty.addSample(julianTime, Cesium.Math.toRadians(ts.heading));
@@ -86,7 +82,7 @@ export function loadTrajectory(
   const lastTimestamp = timestamps[timestamps.length - 1];
   console.log(
     `[TrajectoryLoader] Loaded ${timestamps.length} samples, ` +
-    `total duration: ${lastTimestamp.time_s.toFixed(1)}s`
+      `total duration: ${lastTimestamp.time_s.toFixed(1)}s`,
   );
 
   return {
@@ -104,7 +100,7 @@ export function loadTrajectory(
  */
 function loadFromWaypoints(
   timeline: NarrationTimeline,
-  Cesium: any
+  Cesium: CesiumNamespace,
 ): TrajectorySpline | null {
   const segments = timeline.segments;
   if (!segments || segments.length === 0) return null;
@@ -126,20 +122,26 @@ function loadFromWaypoints(
     const julianTime = Cesium.JulianDate.addSeconds(
       startJulianDate,
       seg.cumulative_start_time_s || cumTime,
-      new Cesium.JulianDate()
+      new Cesium.JulianDate(),
     );
 
     const cartesian = Cesium.Cartesian3.fromDegrees(
       wp.longitude,
       wp.latitude,
-      wp.altitude || 300
+      wp.altitude || 300,
     );
 
     positionProperty.addSample(julianTime, cartesian);
-    headingProperty.addSample(julianTime, Cesium.Math.toRadians(wp.heading || 0));
+    headingProperty.addSample(
+      julianTime,
+      Cesium.Math.toRadians(wp.heading || 0),
+    );
     pitchProperty.addSample(julianTime, Cesium.Math.toRadians(wp.pitch || -35));
 
-    cumTime += (wp.duration || 3) + (wp.pause_after || 1) + (seg.estimated_speech_duration_s || 4);
+    cumTime +=
+      (wp.duration || 3) +
+      (wp.pause_after || 1) +
+      (seg.estimated_speech_duration_s || 4);
   }
 
   return {

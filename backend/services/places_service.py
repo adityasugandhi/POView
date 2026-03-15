@@ -4,6 +4,11 @@ from typing import List, Dict, Any
 
 API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "YOUR_API_KEY_HERE")
 
+
+def _build_photo_url(photo_name: str) -> str:
+    """Build a Google Places photo URL from the photo resource name."""
+    return f"https://places.googleapis.com/v1/{photo_name}/media?maxWidthPx=400&key={API_KEY}"
+
 async def get_autocomplete_predictions(input_text: str) -> List[Dict[str, Any]]:
     """Secure backend proxy for Google Places Autocomplete API to hide the API key."""
     url = "https://places.googleapis.com/v1/places:autocomplete"
@@ -135,7 +140,7 @@ async def contextual_places_search(lat: float, lng: float, radius_miles: float, 
     url = "https://places.googleapis.com/v1/places:searchText"
     headers = {
         "X-Goog-Api-Key": API_KEY,
-        "X-Goog-FieldMask": "places.displayName,places.location,places.rating,places.editorialSummary,places.primaryType",
+        "X-Goog-FieldMask": "places.displayName,places.location,places.rating,places.editorialSummary,places.primaryType,places.photos,places.reviews,places.regularOpeningHours,places.internationalPhoneNumber,places.websiteUri,places.formattedAddress,places.priceLevel,places.userRatingCount",
         "Content-Type": "application/json"
     }
 
@@ -191,12 +196,34 @@ async def contextual_places_search(lat: float, lng: float, radius_miles: float, 
         description = description.encode('ascii', 'ignore').decode('ascii').strip()
         name = place.get("displayName", {}).get("text", "").encode('ascii', 'ignore').decode('ascii').strip()
         
+        # Extract photo URLs (up to 5)
+        photo_urls = [_build_photo_url(p["name"]) for p in place.get("photos", [])[:5]]
+
+        # Extract reviews (up to 3)
+        reviews = []
+        for rev in place.get("reviews", [])[:3]:
+            rev_text = rev.get("text", {}).get("text", "") if isinstance(rev.get("text"), dict) else str(rev.get("text", ""))
+            reviews.append({
+                "authorName": rev.get("authorAttribution", {}).get("displayName", "Anonymous"),
+                "rating": rev.get("rating", 0),
+                "text": rev_text[:200],
+                "timeAgo": rev.get("relativePublishTimeDescription", ""),
+            })
+
         structured_results.append({
             "name": name,
             "lat": place.get("location", {}).get("latitude"),
             "lng": place.get("location", {}).get("longitude"),
             "rating": place.get("rating", 0.0),
             "description": description,
+            "photoUrls": photo_urls,
+            "reviews": reviews,
+            "address": place.get("formattedAddress", ""),
+            "phone": place.get("internationalPhoneNumber", ""),
+            "website": place.get("websiteUri", ""),
+            "hours": place.get("regularOpeningHours", {}).get("weekdayDescriptions", []),
+            "priceLevel": place.get("priceLevel", ""),
+            "ratingCount": place.get("userRatingCount", 0),
         })
         
     return structured_results
@@ -207,7 +234,6 @@ async def reverse_geocode(lat: float, lng: float) -> dict:
     params = {
         "latlng": f"{lat},{lng}",
         "key": API_KEY,
-        "result_type": "locality|neighborhood|sublocality",
     }
 
     async with httpx.AsyncClient() as client:
@@ -218,10 +244,17 @@ async def reverse_geocode(lat: float, lng: float) -> dict:
             results = data.get("results", [])
             if not results:
                 return {}
-            first = results[0]
+
+            # Prefer locality-level results for cleaner display names,
+            # fall back to whatever Google returns first (most specific)
+            preferred_types = ("locality", "neighborhood", "sublocality")
+            best = next(
+                (r for r in results if any(t in r.get("types", []) for t in preferred_types)),
+                results[0],
+            )
             return {
-                "place_id": first.get("place_id", ""),
-                "formatted_address": first.get("formatted_address", ""),
+                "place_id": best.get("place_id", ""),
+                "formatted_address": best.get("formatted_address", ""),
             }
         except Exception as e:
             print(f"Error reverse geocoding: {e}")

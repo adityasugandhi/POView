@@ -26,6 +26,7 @@ import type {
   TourStatus,
   DefaultLocation,
   CameraWaypoint,
+  Viewport,
 } from "@/types/simulation";
 
 // ---------------------------------------------------------------------------
@@ -43,7 +44,11 @@ export interface SimulationState {
   searchQuery: string;
   weatherState: string;
   weatherData: WeatherData | null;
-  liveApiConnectionStatus: "disconnected" | "connecting" | "connected" | "error";
+  liveApiConnectionStatus:
+    | "disconnected"
+    | "connecting"
+    | "connected"
+    | "error";
   tourStatus: TourStatus;
 
   // UI / navigation state
@@ -51,7 +56,7 @@ export interface SimulationState {
   isTransitioning: boolean;
   defaultLocation: DefaultLocation | null;
   location: { lat: number; lng: number } | null;
-  viewport: Record<string, unknown> | null;
+  viewport: Viewport | null;
   selectedRecommendation: Recommendation | null;
   recenterTrigger: number;
   layersVisible: boolean;
@@ -86,7 +91,7 @@ export interface SimulationState {
   setWeatherState: (state: string) => void;
   setWeatherData: (data: WeatherData | null) => void;
   setLocation: (loc: { lat: number; lng: number } | null) => void;
-  setViewport: (vp: Record<string, unknown> | null) => void;
+  setViewport: (vp: Viewport | null) => void;
   setSelectedRecommendation: (rec: Recommendation | null) => void;
   setRecenterTrigger: () => void;
   setLayersVisible: (visible: boolean) => void;
@@ -97,7 +102,9 @@ export interface SimulationState {
   setDefaultLocation: (loc: DefaultLocation | null) => void;
   setIsVoiceSessionActive: (active: boolean) => void;
   setTourStatus: (status: TourStatus) => void;
-  setLiveApiConnectionStatus: (status: SimulationState["liveApiConnectionStatus"]) => void;
+  setLiveApiConnectionStatus: (
+    status: SimulationState["liveApiConnectionStatus"],
+  ) => void;
 
   // Legacy drone
   setDroneWaypoints: (waypoints: CameraWaypoint[]) => void;
@@ -197,16 +204,19 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   setLocation: (loc) => set({ location: loc }),
   setViewport: (vp) => set({ viewport: vp }),
   setSelectedRecommendation: (rec) => set({ selectedRecommendation: rec }),
-  setRecenterTrigger: () => set((s) => ({ recenterTrigger: s.recenterTrigger + 1 })),
+  setRecenterTrigger: () =>
+    set((s) => ({ recenterTrigger: s.recenterTrigger + 1 })),
   setLayersVisible: (visible) => set({ layersVisible: visible }),
   setLoading: (loading) => set({ loading }),
   setError: (error) => set({ error }),
   setHasStarted: (started) => set({ hasStarted: started }),
-  setIsTransitioning: (transitioning) => set({ isTransitioning: transitioning }),
+  setIsTransitioning: (transitioning) =>
+    set({ isTransitioning: transitioning }),
   setDefaultLocation: (loc) => set({ defaultLocation: loc }),
   setIsVoiceSessionActive: (active) => set({ isVoiceSessionActive: active }),
   setTourStatus: (status) => set({ tourStatus: status }),
-  setLiveApiConnectionStatus: (status) => set({ liveApiConnectionStatus: status }),
+  setLiveApiConnectionStatus: (status) =>
+    set({ liveApiConnectionStatus: status }),
 
   // Legacy drone
   setDroneWaypoints: (waypoints) => set({ droneWaypoints: waypoints }),

@@ -49,7 +49,10 @@ export interface NarrationSegment {
   waypoint: CameraWaypoint;
   narration_text: string;
   poi_names: string[];
-  poi_context: Record<string, { rating: number; type: string; notable_fact: string }>;
+  poi_context: Record<
+    string,
+    { rating: number; type: string; notable_fact: string }
+  >;
   transition_description: string;
   estimated_speech_duration_s: number;
   cumulative_start_time_s: number;
@@ -125,13 +128,28 @@ export interface WeatherData {
 
 // --- Recommendation (from proximity search) ---
 
+export interface PlaceReview {
+  authorName: string;
+  rating: number;
+  text: string;
+  timeAgo: string;
+}
+
 export interface Recommendation {
   name: string;
   rating: number;
-  description: string;
+  description?: string;
   lat: number;
   lng: number;
   routingPath?: number[][];
+  photoUrls?: string[];
+  reviews?: PlaceReview[];
+  address?: string;
+  phone?: string;
+  website?: string;
+  hours?: string[];
+  priceLevel?: string;
+  ratingCount?: number;
 }
 
 // --- Neighborhood Profile (from backend) ---
@@ -175,4 +193,9 @@ export interface DefaultLocation {
   displayName: string;
   lat: number;
   lng: number;
+}
+
+export interface Viewport {
+  low: { latitude: number; longitude: number };
+  high: { latitude: number; longitude: number };
 }

@@ -6,24 +6,11 @@ import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useLiveWebSocket, TranscriptLine } from "@/hooks/useLiveWebSocket";
 import { unlockSharedAudioContext } from "@/lib/sharedAudioContext";
 
-// Shared types with page.tsx — kept inline to avoid a separate types file
-interface NeighborhoodProfile {
-  [key: string]: unknown;
-}
-interface Recommendation {
-  [key: string]: unknown;
-}
-interface CameraWaypoint {
-  label: string;
-  latitude: number;
-  longitude: number;
-  altitude: number;
-  heading: number;
-  pitch: number;
-  roll: number;
-  duration: number;
-  pause_after: number;
-}
+import type {
+  NeighborhoodProfile,
+  Recommendation,
+  CameraWaypoint,
+} from "@/types/simulation";
 
 export interface VoiceAssistantProps {
   onProfileData?: (profile: NeighborhoodProfile, placeId: string) => void;
@@ -32,9 +19,32 @@ export interface VoiceAssistantProps {
   onDroneTourStart?: () => void;
   onNarratedTourResult?: (data: Record<string, unknown>) => void;
   onWebSocketReady?: (methods: {
-    sendTourProgress: (...args: any[]) => void;
-    sendTourLifecycle: (...args: any[]) => void;
-    sendCameraContext: (...args: any[]) => void;
+    sendTourProgress: (payload: {
+      segment_id: number;
+      narration_text: string;
+      poi_names: string[];
+      transition_description: string;
+      playback_state: "segment_boundary" | "playing" | "paused" | "completed";
+      audio_time_s: number;
+    }) => void;
+    sendTourLifecycle: (
+      event: "tour_start" | "tour_pause" | "tour_resume" | "tour_stop",
+      extra?: { opening_narration?: string },
+    ) => void;
+    sendCameraContext: (payload: {
+      lat: number;
+      lng: number;
+      alt: number;
+      heading: number;
+      pitch: number;
+      visible_pois: Array<{ name: string; type: string; rating: number }>;
+      bounding_box: {
+        west: number;
+        south: number;
+        east: number;
+        north: number;
+      };
+    }) => void;
   }) => void;
 }
 
@@ -55,7 +65,11 @@ export default function VoiceAssistant({
   const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   // --- Audio player ---
-  const { addChunk: addAudioChunk, stop: stopPlayback, isPlaying } = useAudioPlayer();
+  const {
+    addChunk: addAudioChunk,
+    stop: stopPlayback,
+    isPlaying,
+  } = useAudioPlayer();
 
   // --- WebSocket callbacks (stable refs) ---
   const handleAudio = useCallback(
@@ -63,7 +77,7 @@ export default function VoiceAssistant({
       addAudioChunk(buf);
       setVoiceState("speaking");
     },
-    [addAudioChunk]
+    [addAudioChunk],
   );
 
   const handleTranscript = useCallback((line: TranscriptLine) => {
@@ -81,7 +95,7 @@ export default function VoiceAssistant({
           if (d.profile && d.place_id) {
             onProfileData?.(
               d.profile as NeighborhoodProfile,
-              d.place_id as string
+              d.place_id as string,
             );
           }
           if (
@@ -89,7 +103,8 @@ export default function VoiceAssistant({
             (d.visualization_plan as Record<string, unknown>).waypoints
           ) {
             onDroneWaypoints?.(
-              (d.visualization_plan as { waypoints: CameraWaypoint[] }).waypoints
+              (d.visualization_plan as { waypoints: CameraWaypoint[] })
+                .waypoints,
             );
           }
           break;
@@ -106,7 +121,13 @@ export default function VoiceAssistant({
           break;
       }
     },
-    [onProfileData, onDroneWaypoints, onRecommendations, onDroneTourStart, onNarratedTourResult]
+    [
+      onProfileData,
+      onDroneWaypoints,
+      onRecommendations,
+      onDroneTourStart,
+      onNarratedTourResult,
+    ],
   );
 
   const handleStateChange = useCallback((state: string) => {
@@ -119,14 +140,21 @@ export default function VoiceAssistant({
   }, []);
 
   // --- WebSocket hook ---
-  const { connect, disconnect, sendAudio, sendText, sendCameraContext, sendTourProgress, sendTourLifecycle, isConnected } =
-    useLiveWebSocket({
-      onAudio: handleAudio,
-      onTranscript: handleTranscript,
-      onToolResult: handleToolResult,
-      onStateChange: handleStateChange,
-      onError: handleError,
-    });
+  const {
+    connect,
+    disconnect,
+    sendAudio,
+    sendCameraContext,
+    sendTourProgress,
+    sendTourLifecycle,
+    isConnected,
+  } = useLiveWebSocket({
+    onAudio: handleAudio,
+    onTranscript: handleTranscript,
+    onToolResult: handleToolResult,
+    onStateChange: handleStateChange,
+    onError: handleError,
+  });
 
   // Expose WebSocket methods for tour orchestrator
   const wsMethodsExposed = React.useRef(false);
@@ -142,41 +170,65 @@ export default function VoiceAssistant({
     if (!isConnected) {
       wsMethodsExposed.current = false;
     }
-  }, [isConnected, sendTourProgress, sendTourLifecycle, sendCameraContext, onWebSocketReady]);
+  }, [
+    isConnected,
+    sendTourProgress,
+    sendTourLifecycle,
+    sendCameraContext,
+    onWebSocketReady,
+  ]);
 
   // --- Mic recorder ---
   const handleChunk = useCallback(
     (chunk: Int16Array) => {
       sendAudio(chunk);
     },
-    [sendAudio]
+    [sendAudio],
   );
 
-  const { start: startMic, stop: stopMic, isRecording } = useAudioRecorder({
+  const {
+    start: startMic,
+    stop: stopMic,
+    isRecording,
+  } = useAudioRecorder({
     onChunk: handleChunk,
   });
 
-  // Sync voice state with isPlaying
+  // Sync voice state with isPlaying — use ref to track previous state and avoid setState in effect
+  const prevIsPlayingRef = useRef(isPlaying);
   useEffect(() => {
-    if (!isPlaying && voiceState === "speaking") {
-      setVoiceState(isRecording ? "listening" : "idle");
-      // Start fade-out timer
-      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
-      fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 8000);
+    const wasPlaying = prevIsPlayingRef.current;
+    prevIsPlayingRef.current = isPlaying;
+    if (wasPlaying && !isPlaying) {
+      // Audio just stopped — schedule state update outside effect
+      queueMicrotask(() => {
+        setVoiceState(isRecording ? "listening" : "idle");
+        if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+        fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 8000);
+      });
     }
-  }, [isPlaying, voiceState, isRecording]);
+  }, [isPlaying, isRecording]);
 
   // --- Toggle mic ---
   const handleToggle = useCallback(async () => {
     if (!isConnected) {
-      await unlockSharedAudioContext();
-      // Connect first, then start mic
-      const sessionId = crypto.randomUUID();
-      connect(sessionId);
-      await startMic();
-      setVoiceState("listening");
-      setPanelVisible(true);
-      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+      try {
+        await unlockSharedAudioContext();
+        const sessionId = crypto.randomUUID();
+        console.log("[Voice] connecting WS…", sessionId);
+        await connect(sessionId);
+        console.log("[Voice] WS open, starting mic…");
+        await startMic();
+        console.log("[Voice] mic started");
+        setVoiceState("listening");
+        setPanelVisible(true);
+        if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+      } catch (err) {
+        console.error("[Voice] toggle failed:", err);
+        stopMic();
+        disconnect();
+        setVoiceState("idle");
+      }
     } else {
       // Disconnect everything
       stopMic();
@@ -186,14 +238,7 @@ export default function VoiceAssistant({
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
       fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 8000);
     }
-  }, [
-    isConnected,
-    connect,
-    startMic,
-    stopMic,
-    stopPlayback,
-    disconnect,
-  ]);
+  }, [isConnected, connect, startMic, stopMic, stopPlayback, disconnect]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -213,37 +258,17 @@ export default function VoiceAssistant({
   const buttonStyle = {
     idle: "bg-black/40 hover:bg-white/10 border-white/10 text-white/60 hover:text-white",
     listening: "bg-cyan-500/20 border-cyan-400/50 text-cyan-300 animate-pulse",
-    processing: "bg-purple-500/20 border-purple-400/50 text-purple-300 animate-pulse",
-    speaking: "bg-green-500/20 border-green-400/50 text-green-300 animate-pulse",
+    processing:
+      "bg-purple-500/20 border-purple-400/50 text-purple-300 animate-pulse",
+    speaking:
+      "bg-green-500/20 border-green-400/50 text-green-300 animate-pulse",
   }[voiceState];
 
   return (
     <>
-      {/* Mic toggle button — sits inline in the top-center button row */}
-      <button
-        onClick={handleToggle}
-        className={`backdrop-blur-xl shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-4 py-3 flex items-center space-x-2 pointer-events-auto transition-all duration-300 border ${buttonStyle}`}
-        title={isConnected ? "Stop voice assistant" : "Start voice assistant"}
-      >
-        {isConnected ? (
-          <Mic className="w-4 h-4" />
-        ) : (
-          <MicOff className="w-4 h-4" />
-        )}
-        <span className="text-xs font-bold tracking-wider uppercase">
-          {voiceState === "idle"
-            ? "VOICE"
-            : voiceState === "listening"
-            ? "LISTENING"
-            : voiceState === "processing"
-            ? "THINKING"
-            : "SPEAKING"}
-        </span>
-      </button>
-
-      {/* Transcript panel */}
+      {/* Transcript panel — above the button */}
       {panelVisible && transcript.length > 0 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[480px] bg-black/80 backdrop-blur-2xl border border-white/20 rounded-2xl p-4 z-20 transition-opacity duration-500 flex flex-col pointer-events-auto shadow-[0_8px_32px_0_rgba(0,0,0,0.5)]">
+        <div className="w-[480px] bg-black/80 backdrop-blur-2xl border border-white/20 rounded-2xl p-4 z-20 transition-opacity duration-500 flex flex-col pointer-events-auto shadow-[0_8px_32px_0_rgba(0,0,0,0.5)]">
           <div className="max-h-48 overflow-y-auto space-y-4 pr-2">
             {transcript.map((line, i) => (
               <p
@@ -269,10 +294,10 @@ export default function VoiceAssistant({
                 voiceState === "idle"
                   ? "bg-white/20"
                   : voiceState === "listening"
-                  ? "bg-cyan-400 animate-pulse"
-                  : voiceState === "processing"
-                  ? "bg-purple-400 animate-pulse"
-                  : "bg-green-400 animate-pulse"
+                    ? "bg-cyan-400 animate-pulse"
+                    : voiceState === "processing"
+                      ? "bg-purple-400 animate-pulse"
+                      : "bg-green-400 animate-pulse"
               }`}
             />
             <span className="text-xs text-white/40 tracking-widest uppercase font-bold">
@@ -281,6 +306,28 @@ export default function VoiceAssistant({
           </div>
         </div>
       )}
+
+      {/* Mic toggle button — centered at bottom */}
+      <button
+        onClick={handleToggle}
+        className={`backdrop-blur-xl shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-4 py-3 flex items-center space-x-2 pointer-events-auto transition-all duration-300 border ${buttonStyle}`}
+        title={isConnected ? "Stop voice assistant" : "Start voice assistant"}
+      >
+        {isConnected ? (
+          <Mic className="w-4 h-4" />
+        ) : (
+          <MicOff className="w-4 h-4" />
+        )}
+        <span className="text-xs font-bold tracking-wider uppercase">
+          {voiceState === "idle"
+            ? "VOICE"
+            : voiceState === "listening"
+              ? "LISTENING"
+              : voiceState === "processing"
+                ? "THINKING"
+                : "SPEAKING"}
+        </span>
+      </button>
     </>
   );
 }

@@ -31,9 +31,7 @@ export default function TourProgressBar({
     tourStatus === "opening";
   const isPaused = tourStatus === "paused";
 
-  const segmentNumber = currentSegment
-    ? currentSegment.segment_id + 1
-    : 0;
+  const segmentNumber = currentSegment ? currentSegment.segment_id + 1 : 0;
 
   return (
     <div className="absolute bottom-6 left-1/2 -translate-x-1/2 z-40 w-[90%] max-w-2xl pointer-events-auto">
@@ -47,22 +45,22 @@ export default function TourProgressBar({
                 isActive
                   ? "bg-cyan-400 animate-pulse shadow-[0_0_8px_rgba(34,211,238,0.8)]"
                   : isPaused
-                  ? "bg-amber-400"
-                  : "bg-white/30"
+                    ? "bg-amber-400"
+                    : "bg-white/30"
               }`}
             />
             <span className="text-xs font-mono uppercase tracking-widest text-white/60">
               {tourStatus === "opening"
                 ? "Starting Tour"
                 : tourStatus === "narrating"
-                ? `Segment ${segmentNumber}/${totalSegments}`
-                : tourStatus === "playing"
-                ? `Flying — ${segmentNumber}/${totalSegments}`
-                : tourStatus === "paused"
-                ? "Paused"
-                : tourStatus === "closing"
-                ? "Wrapping Up"
-                : "Tour"}
+                  ? `Segment ${segmentNumber}/${totalSegments}`
+                  : tourStatus === "playing"
+                    ? `Flying — ${segmentNumber}/${totalSegments}`
+                    : tourStatus === "paused"
+                      ? "Paused"
+                      : tourStatus === "closing"
+                        ? "Wrapping Up"
+                        : "Tour"}
             </span>
           </div>
 

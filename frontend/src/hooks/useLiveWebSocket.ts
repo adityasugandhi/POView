@@ -23,72 +23,89 @@ export function useLiveWebSocket({
 }: UseLiveWebSocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
+  const audioSentRef = useRef(false);
 
   const connect = useCallback(
-    (sessionId: string) => {
-      if (wsRef.current) return;
+    (sessionId: string): Promise<void> => {
+      if (wsRef.current) return Promise.resolve();
 
-      const ws = new WebSocket(
-        `ws://localhost:8000/ws/live/${sessionId}`
-      );
-      ws.binaryType = "arraybuffer";
-      wsRef.current = ws;
+      return new Promise<void>((resolve, reject) => {
+        const ws = new WebSocket(`ws://localhost:8000/ws/live/${sessionId}`);
+        ws.binaryType = "arraybuffer";
+        wsRef.current = ws;
 
-      ws.onopen = () => setIsConnected(true);
+        ws.onopen = () => {
+          console.log("[WS] connected");
+          setIsConnected(true);
+          resolve();
+        };
 
-      ws.onclose = () => {
-        wsRef.current = null;
-        setIsConnected(false);
-      };
+        ws.onclose = () => {
+          console.log("[WS] closed");
+          wsRef.current = null;
+          setIsConnected(false);
+        };
 
-      ws.onerror = () => {
-        onError("WebSocket connection error");
-      };
+        ws.onerror = () => {
+          onError("WebSocket connection error");
+          reject(new Error("WebSocket connection error"));
+        };
 
-      ws.onmessage = (event: MessageEvent) => {
-        if (event.data instanceof ArrayBuffer) {
-          // Binary frame = audio PCM
-          onAudio(event.data);
-          return;
-        }
-
-        // Text frame = JSON envelope
-        try {
-          const msg = JSON.parse(event.data as string);
-          switch (msg.type) {
-            case "transcript":
-              onTranscript({
-                role: msg.role,
-                text: msg.text,
-                finished: msg.finished,
-              });
-              break;
-            case "tool_result":
-              onToolResult(msg.tool, msg.data);
-              break;
-            case "state":
-              onStateChange(msg.state);
-              break;
-            case "error":
-              onError(msg.message);
-              break;
+        ws.onmessage = (event: MessageEvent) => {
+          if (event.data instanceof ArrayBuffer) {
+            if (event.data.byteLength > 0) {
+              console.log(
+                "[WS] audio chunk received, bytes:",
+                event.data.byteLength,
+              );
+            }
+            onAudio(event.data);
+            return;
           }
-        } catch {
-          // ignore malformed frames
-        }
-      };
+
+          // Text frame = JSON envelope
+          try {
+            const msg = JSON.parse(event.data as string);
+            switch (msg.type) {
+              case "transcript":
+                onTranscript({
+                  role: msg.role,
+                  text: msg.text,
+                  finished: msg.finished,
+                });
+                break;
+              case "tool_result":
+                onToolResult(msg.tool, msg.data);
+                break;
+              case "state":
+                onStateChange(msg.state);
+                break;
+              case "error":
+                onError(msg.message);
+                break;
+            }
+          } catch {
+            // ignore malformed frames
+          }
+        };
+      });
     },
-    [onAudio, onTranscript, onToolResult, onStateChange, onError]
+    [onAudio, onTranscript, onToolResult, onStateChange, onError],
   );
 
   const disconnect = useCallback(() => {
     wsRef.current?.close();
     wsRef.current = null;
     setIsConnected(false);
+    audioSentRef.current = false;
   }, []);
 
   const sendAudio = useCallback((chunk: Int16Array) => {
     if (wsRef.current?.readyState === WebSocket.OPEN) {
+      if (!audioSentRef.current) {
+        console.log("[WS] first audio chunk sent, bytes:", chunk.byteLength);
+        audioSentRef.current = true;
+      }
       wsRef.current.send(chunk.buffer);
     }
   }, []);
@@ -108,15 +125,20 @@ export function useLiveWebSocket({
       heading: number;
       pitch: number;
       visible_pois: Array<{ name: string; type: string; rating: number }>;
-      bounding_box: { west: number; south: number; east: number; north: number };
+      bounding_box: {
+        west: number;
+        south: number;
+        east: number;
+        north: number;
+      };
     }) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(
-          JSON.stringify({ type: "camera_context", ...payload })
+          JSON.stringify({ type: "camera_context", ...payload }),
         );
       }
     },
-    []
+    [],
   );
 
   /** Send narration cue at segment boundaries (for [NARRATION_CUE] injection) */
@@ -131,26 +153,24 @@ export function useLiveWebSocket({
     }) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
         wsRef.current.send(
-          JSON.stringify({ type: "tour_progress", ...payload })
+          JSON.stringify({ type: "tour_progress", ...payload }),
         );
       }
     },
-    []
+    [],
   );
 
   /** Send tour lifecycle events (start/pause/resume/stop) */
   const sendTourLifecycle = useCallback(
     (
       event: "tour_start" | "tour_pause" | "tour_resume" | "tour_stop",
-      extra?: { opening_narration?: string }
+      extra?: { opening_narration?: string },
     ) => {
       if (wsRef.current?.readyState === WebSocket.OPEN) {
-        wsRef.current.send(
-          JSON.stringify({ type: event, ...extra })
-        );
+        wsRef.current.send(JSON.stringify({ type: event, ...extra }));
       }
     },
-    []
+    [],
   );
 
   return {

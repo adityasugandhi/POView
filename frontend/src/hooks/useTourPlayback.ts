@@ -18,7 +18,11 @@ import {
   getCurrentSegment,
 } from "@/lib/tourOrchestrator";
 import { getSharedAudioContext } from "@/lib/sharedAudioContext";
-import type { NarrationTimeline, NarrationSegment, TourStatus } from "@/types/simulation";
+import type {
+  NarrationTimeline,
+  NarrationSegment,
+  TourStatus,
+} from "@/types/simulation";
 
 interface TourPlaybackState {
   tourStatus: TourStatus;
@@ -31,12 +35,14 @@ interface TourPlaybackState {
 }
 
 export function useTourPlayback(
-  sendTourProgress: (...args: any[]) => void,
-  sendTourLifecycle: (...args: any[]) => void
+  sendTourProgress: (...args: unknown[]) => void,
+  sendTourLifecycle: (...args: unknown[]) => void,
 ): TourPlaybackState {
   const tourStatus = useSimulationStore((s) => s.tourStatus);
   const [progress, setProgress] = useState(0);
-  const [currentSegment, setCurrentSegment] = useState<NarrationSegment | null>(null);
+  const [currentSegment, setCurrentSegment] = useState<NarrationSegment | null>(
+    null,
+  );
   const progressInterval = useRef<ReturnType<typeof setInterval> | null>(null);
   const initialized = useRef(false);
 
@@ -76,17 +82,14 @@ export function useTourPlayback(
     };
   }, [tourStatus]);
 
-  const startNarratedTour = useCallback(
-    (timeline: NarrationTimeline) => {
-      try {
-        const audioContext = getSharedAudioContext();
-        startTour(timeline, audioContext);
-      } catch (err) {
-        console.error("[useTourPlayback] Failed to get AudioContext", err);
-      }
-    },
-    []
-  );
+  const startNarratedTour = useCallback((timeline: NarrationTimeline) => {
+    try {
+      const audioContext = getSharedAudioContext();
+      startTour(timeline, audioContext);
+    } catch (err) {
+      console.error("[useTourPlayback] Failed to get AudioContext", err);
+    }
+  }, []);
 
   return {
     tourStatus,
