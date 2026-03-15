@@ -1,15 +1,14 @@
 /**
  * POView — Shared Audio Context
- * 
+ *
  * A singleton AudioContext instance to guarantee perfect clock synchronization
  * between Gemini's audio playback (useAudioPlayer) and the tour orchestrator (useTourPlayback).
- * 
+ *
  * Creating multiple AudioContexts causes clock bifurcation (where one clock stays at 0
  * if not resumed by a user gesture), resulting in frozen camera paths during playback.
  */
 
 let sharedContext: AudioContext | null = null;
-let unlockAttempted = false;
 
 /**
  * Get or create the shared AudioContext.
@@ -36,7 +35,6 @@ export async function unlockSharedAudioContext(): Promise<void> {
       console.warn("[SharedAudioContext] Failed to resume on gesture:", e);
     }
   }
-  unlockAttempted = true;
 }
 
 /**
@@ -46,6 +44,5 @@ export function destroySharedAudioContext(): void {
   if (sharedContext) {
     sharedContext.close();
     sharedContext = null;
-    unlockAttempted = false;
   }
 }

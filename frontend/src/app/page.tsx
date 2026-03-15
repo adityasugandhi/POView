@@ -1,20 +1,37 @@
 "use client";
-import React, { useCallback, useRef, useState } from "react";
+import React, { useState, useCallback, useRef } from "react";
 import dynamic from "next/dynamic";
 import InsightPanel from "@/components/InsightPanel";
 import SearchBox from "@/components/SearchBox";
 import RecommendationsPanel from "@/components/RecommendationsPanel";
 import LandingPage from "@/components/LandingPage";
-import { getStoredLocation, DefaultLocation as LocSelectorDefault } from "@/components/LocationSelector";
+import {
+  getStoredLocation,
+  DefaultLocation as LocSelectorDefault,
+} from "@/components/LocationSelector";
 import VoiceAssistant from "@/components/VoiceAssistant";
 import TourProgressBar from "@/components/TourProgressBar";
 import { useSimulationStore } from "@/store/useSimulationStore";
 import { useTourPlayback } from "@/hooks/useTourPlayback";
-import { initOrchestrator } from "@/lib/tourOrchestrator";
+import {
+  MOCK_LOCATION,
+  MOCK_VIEWPORT,
+  MOCK_RECOMMENDATIONS,
+  MOCK_PROFILE_DATA,
+  MOCK_WEATHER,
+  MOCK_DRONE_WAYPOINTS,
+} from "@/lib/mockData";
 import axios from "axios";
 import { Ion } from "cesium";
 import "cesium/Build/Cesium/Widgets/widgets.css";
-import type { CameraWaypoint, DefaultLocation, NarrationTimeline } from "@/types/simulation";
+import type {
+  CameraWaypoint,
+  DefaultLocation,
+  Viewport,
+  Recommendation as SimRecommendation,
+  NeighborhoodProfile,
+  NarrationTimeline,
+} from "@/types/simulation";
 
 const NYC_FALLBACK: DefaultLocation = {
   placeId: "ChIJOwg_06VPwokRYv534QaPC8g",
@@ -25,7 +42,7 @@ const NYC_FALLBACK: DefaultLocation = {
 
 // Set Cesium base URL to public folder copies
 if (typeof window !== "undefined") {
-  (window as any).CESIUM_BASE_URL = "/cesium";
+  (window as unknown as Record<string, string>).CESIUM_BASE_URL = "/cesium";
   Ion.defaultAccessToken = process.env.NEXT_PUBLIC_CESIUM_ION_TOKEN || "";
 }
 
@@ -38,7 +55,9 @@ export default function Home() {
   const viewport = useSimulationStore((s) => s.viewport);
   const location = useSimulationStore((s) => s.location);
   const recommendationsData = useSimulationStore((s) => s.recommendationsData);
-  const selectedRecommendation = useSimulationStore((s) => s.selectedRecommendation);
+  const selectedRecommendation = useSimulationStore(
+    (s) => s.selectedRecommendation,
+  );
   const loading = useSimulationStore((s) => s.loading);
   const error = useSimulationStore((s) => s.error);
   const recenterTrigger = useSimulationStore((s) => s.recenterTrigger);
@@ -48,14 +67,17 @@ export default function Home() {
   const weatherState = useSimulationStore((s) => s.weatherState);
   const droneWaypoints = useSimulationStore((s) => s.droneWaypoints);
   const activeDroneWaypoint = useSimulationStore((s) => s.activeDroneWaypoint);
-  const isDroneFlying = useSimulationStore((s) => s.isDroneFlying);
 
   // ── Zustand actions ─────────────────────────────────────────────────
   const setProfileData = useSimulationStore((s) => s.setProfileData);
   const setViewport = useSimulationStore((s) => s.setViewport);
   const setLocation = useSimulationStore((s) => s.setLocation);
-  const setRecommendationsData = useSimulationStore((s) => s.setRecommendationsData);
-  const setSelectedRecommendation = useSimulationStore((s) => s.setSelectedRecommendation);
+  const setRecommendationsData = useSimulationStore(
+    (s) => s.setRecommendationsData,
+  );
+  const setSelectedRecommendation = useSimulationStore(
+    (s) => s.setSelectedRecommendation,
+  );
   const setLoading = useSimulationStore((s) => s.setLoading);
   const setError = useSimulationStore((s) => s.setError);
   const setRecenterTrigger = useSimulationStore((s) => s.setRecenterTrigger);
@@ -63,56 +85,105 @@ export default function Home() {
   const setIsTransitioning = useSimulationStore((s) => s.setIsTransitioning);
   const setWeatherState = useSimulationStore((s) => s.setWeatherState);
   const setDroneWaypoints = useSimulationStore((s) => s.setDroneWaypoints);
-  const setActiveDroneWaypoint = useSimulationStore((s) => s.setActiveDroneWaypoint);
-  const setIsDroneFlying = useSimulationStore((s) => s.setIsDroneFlying);
+  const setActiveDroneWaypoint = useSimulationStore(
+    (s) => s.setActiveDroneWaypoint,
+  );
   const clearSearch = useSimulationStore((s) => s.clearSearch);
 
-  // ── Ref for drone tour timer ─────────────────────────────────────────
+  // ── Mock data toggle (dev only) ────────────────────────────────────
+  const [useMockData, setUseMockData] = useState(false);
+
+  // ── Local drone tour controls (index-based navigation) ─────────────
+  const [droneIndex, setDroneIndex] = useState<number>(-1);
+  const [droneAutoPlay, setDroneAutoPlay] = useState(false);
   const droneTimerRef = useRef<NodeJS.Timeout | null>(null);
 
-  // ── Initialize default location from localStorage (once) ─────────────
-  const defaultLocationRef = useRef<DefaultLocation | null>(null);
-  if (defaultLocationRef.current === null && typeof window !== "undefined") {
-    defaultLocationRef.current = getStoredLocation();
-    useSimulationStore.getState().setDefaultLocation(defaultLocationRef.current);
-  }
+  // Derive active POI name for Map3D highlighting
+  const activePOIName =
+    droneIndex >= 0 ? droneWaypoints[droneIndex]?.label : undefined;
+
+  // ── Default location (hydrate once after mount) ─────────────────────
   const defaultLocation = useSimulationStore((s) => s.defaultLocation);
-
-  // ── Tour Playback ────────────────────────────────────────────────────
-  const wsCallbacks = useRef<{
-    sendTourProgress?: (...args: any[]) => void;
-    sendTourLifecycle?: (...args: any[]) => void;
-    sendCameraContext?: (...args: any[]) => void;
-  }>({});
-
-  const tourPlayback = useTourPlayback(
-    (...args) => wsCallbacks.current.sendTourProgress?.(...args),
-    (...args) => wsCallbacks.current.sendTourLifecycle?.(...args)
-  );
-
-  const handleWebSocketReady = useCallback((callbacks: any) => {
-    wsCallbacks.current = callbacks;
+  React.useEffect(() => {
+    const stored = getStoredLocation();
+    if (stored) {
+      useSimulationStore.getState().setDefaultLocation(stored);
+    }
   }, []);
 
-  const handleNarratedTourResult = useCallback((data: any) => {
-    // Show UI panels by starting transition if we are on landing page
-    if (!useSimulationStore.getState().hasStarted) {
-      setIsTransitioning(true);
-      setTimeout(() => setHasStarted(true), 1000);
-    }
-    
-    if (data.profile) setProfileData(data.profile);
-    if (data.viewport) setViewport(data.viewport);
-    if (data.location) setLocation({ lat: data.location.lat, lng: data.location.lng });
-    if (data.weather && data.weather.render_state) setWeatherState(data.weather.render_state);
-    if (data.narration_timeline) {
-      tourPlayback.startNarratedTour(data.narration_timeline);
-    }
-  }, [setProfileData, setViewport, setLocation, setWeatherState, tourPlayback, setIsTransitioning, setHasStarted]);
+  // ── Tour Playback ────────────────────────────────────────────────────
+  type WsCallbacks =
+    NonNullable<
+      import("@/components/VoiceAssistant").VoiceAssistantProps["onWebSocketReady"]
+    > extends (methods: infer M) => void
+      ? Partial<M>
+      : never;
+  const wsCallbacks = useRef<WsCallbacks>({});
+
+  const tourPlayback = useTourPlayback(
+    (...args: unknown[]) =>
+      (
+        wsCallbacks.current.sendTourProgress as
+          | ((...a: unknown[]) => void)
+          | undefined
+      )?.(...args),
+    (...args: unknown[]) =>
+      (
+        wsCallbacks.current.sendTourLifecycle as
+          | ((...a: unknown[]) => void)
+          | undefined
+      )?.(...args),
+  );
+
+  const handleWebSocketReady = useCallback(
+    (callbacks: Required<WsCallbacks>) => {
+      wsCallbacks.current = callbacks;
+    },
+    [],
+  );
+
+  const handleNarratedTourResult = useCallback(
+    (data: Record<string, unknown>) => {
+      // Show UI panels by starting transition if we are on landing page
+      if (!useSimulationStore.getState().hasStarted) {
+        setIsTransitioning(true);
+        setTimeout(() => setHasStarted(true), 1000);
+      }
+
+      if (data.profile) setProfileData(data.profile as NeighborhoodProfile);
+      if (data.viewport) setViewport(data.viewport as Viewport);
+      if (data.location) {
+        const loc = data.location as { lat: number; lng: number };
+        setLocation({ lat: loc.lat, lng: loc.lng });
+      }
+      if (data.weather) {
+        const weather = data.weather as { render_state?: string };
+        if (weather.render_state) setWeatherState(weather.render_state);
+      }
+      if (data.narration_timeline) {
+        tourPlayback.startNarratedTour(
+          data.narration_timeline as NarrationTimeline,
+        );
+      }
+    },
+    [
+      setProfileData,
+      setViewport,
+      setLocation,
+      setWeatherState,
+      tourPlayback,
+      setIsTransitioning,
+      setHasStarted,
+    ],
+  );
 
   // ── Handlers ─────────────────────────────────────────────────────────
 
   const handleStart = (defaultLoc: DefaultLocation) => {
+    if (useMockData) {
+      loadMockData();
+      return;
+    }
     // Pre-set location so Map3D flies to chosen location instead of NYC
     setLocation({ lat: defaultLoc.lat, lng: defaultLoc.lng });
     setIsTransitioning(true);
@@ -121,7 +192,11 @@ export default function Home() {
     }, 1000);
   };
 
-  const handleSearch = async (placeId: string, intent: string, radius: number) => {
+  const handleSearch = async (
+    placeId: string,
+    intent: string,
+    radius: number,
+  ) => {
     setLoading(true);
     setError("");
     setRecommendationsData([]);
@@ -142,15 +217,23 @@ export default function Home() {
 
       if (proximityRes.data && proximityRes.data.results) {
         setRecommendationsData(
-          proximityRes.data.results.map((res: any) => ({
-            ...res.metadata,
-            lat: res.coordinates[0],
-            lng: res.coordinates[1],
-            routingPath: res.routing_path,
-          }))
+          proximityRes.data.results.map(
+            (res: {
+              metadata: Record<string, unknown>;
+              coordinates: [number, number];
+              routing_path?: number[][];
+            }) => ({
+              ...res.metadata,
+              lat: res.coordinates[0],
+              lng: res.coordinates[1],
+              routingPath: res.routing_path,
+            }),
+          ),
         );
       } else {
-        setError("Failed to retrieve matching locations from proximity search.");
+        setError(
+          "Failed to retrieve matching locations from proximity search.",
+        );
       }
 
       if (profileRes.data) {
@@ -172,22 +255,32 @@ export default function Home() {
         } else {
           setWeatherState("clear");
         }
-        // Extract visualization plan for drone tour
+        // Extract visualization plan for drone tour — exclude filler waypoints, keep POI stops
         if (
           profileRes.data.visualization_plan &&
           profileRes.data.visualization_plan.waypoints
         ) {
-          setDroneWaypoints(profileRes.data.visualization_plan.waypoints);
+          const FILLER_LABELS = new Set(["Overview", "Descent", "Return"]);
+          const poiOnly = profileRes.data.visualization_plan.waypoints
+            .filter(
+              (wp: CameraWaypoint) =>
+                !FILLER_LABELS.has(wp.label) &&
+                !wp.label.startsWith("Transit to "),
+            )
+            .slice(0, proximityRes.data.results.length);
+          setDroneWaypoints(poiOnly);
         }
       } else {
         setError("Failed to retrieve primary neighborhood profile.");
       }
-    } catch (err: any) {
-      setError(
-        err.response?.data?.detail ||
-          err.message ||
-          "An unexpected error occurred."
-      );
+    } catch (err: unknown) {
+      if (axios.isAxiosError(err)) {
+        setError(err.response?.data?.detail || err.message);
+      } else if (err instanceof Error) {
+        setError(err.message);
+      } else {
+        setError("An unexpected error occurred.");
+      }
     } finally {
       setLoading(false);
     }
@@ -199,77 +292,83 @@ export default function Home() {
 
   const handleClear = () => {
     clearSearch();
+    setDroneIndex(-1);
+    setDroneAutoPlay(false);
     if (droneTimerRef.current) clearTimeout(droneTimerRef.current);
   };
 
-  const handleVoiceSearchResult = useCallback(
-    (data: {
-      profileData: any;
-      viewport: any;
-      location: any;
-      weather: any;
-      droneWaypoints: any[];
-      recommendations: any[];
-    }) => {
-      if (data.profileData) {
-        setProfileData(data.profileData);
-      }
-      if (data.viewport) {
-        setViewport(data.viewport);
-      }
-      if (data.location) {
-        setLocation({ lat: data.location.lat, lng: data.location.lng });
-      }
-      if (data.weather && data.weather.render_state) {
-        setWeatherState(data.weather.render_state);
-      }
-      if (data.droneWaypoints && data.droneWaypoints.length > 0) {
-        setDroneWaypoints(data.droneWaypoints);
-      }
-      if (data.recommendations && data.recommendations.length > 0) {
-        setRecommendationsData(
-          data.recommendations.map((rec: any) => ({
-            name: rec.name,
-            rating: rec.rating,
-            description: rec.description,
-            lat: rec.lat,
-            lng: rec.lng,
-            routingPath: [],
-          }))
-        );
-      }
+  // ── Mock data loader (dev only) ─────────────────────────────────────
+  const loadMockData = () => {
+    setLocation(MOCK_LOCATION);
+    setViewport(MOCK_VIEWPORT);
+    setRecommendationsData(MOCK_RECOMMENDATIONS);
+    setProfileData(MOCK_PROFILE_DATA as unknown as NeighborhoodProfile);
+    setWeatherState(MOCK_WEATHER.render_state);
+    setDroneWaypoints(MOCK_DRONE_WAYPOINTS);
+    setHasStarted(true);
+    setLoading(false);
+    setError("");
+  };
+
+  // ── Drone tour controls (index-based PREV/NEXT/PLAY/PAUSE/STOP) ────
+
+  const goToWaypoint = useCallback(
+    (index: number) => {
+      const clamped = Math.max(0, Math.min(index, droneWaypoints.length - 1));
+      setDroneIndex(clamped);
+      setActiveDroneWaypoint(droneWaypoints[clamped]);
     },
-    [
-      setProfileData,
-      setViewport,
-      setLocation,
-      setWeatherState,
-      setDroneWaypoints,
-      setRecommendationsData,
-    ]
+    [droneWaypoints, setActiveDroneWaypoint],
   );
 
-  const handleDroneTour = useCallback(() => {
-    const currentWaypoints = useSimulationStore.getState().droneWaypoints;
-    const currentlyFlying = useSimulationStore.getState().isDroneFlying;
-    if (currentWaypoints.length === 0 || currentlyFlying) return;
-    setIsDroneFlying(true);
+  const handleNext = useCallback(() => {
+    if (droneIndex >= droneWaypoints.length - 1) {
+      setDroneAutoPlay(false);
+      return;
+    }
+    goToWaypoint(droneIndex + 1);
+  }, [droneIndex, droneWaypoints.length, goToWaypoint]);
 
-    let index = 0;
-    const flyNext = () => {
-      if (index >= currentWaypoints.length) {
-        setIsDroneFlying(false);
-        setActiveDroneWaypoint(null);
-        return;
+  const handlePrev = useCallback(() => {
+    if (droneIndex <= 0) return;
+    goToWaypoint(droneIndex - 1);
+  }, [droneIndex, goToWaypoint]);
+
+  const handlePlayPause = useCallback(() => {
+    setDroneAutoPlay((prev) => {
+      if (!prev && droneIndex >= droneWaypoints.length - 1) {
+        goToWaypoint(0);
       }
-      const wp = currentWaypoints[index];
-      setActiveDroneWaypoint(wp);
-      index++;
-      const waitMs = ((wp.duration || 3) + (wp.pause_after || 1)) * 1000;
-      droneTimerRef.current = setTimeout(flyNext, waitMs);
+      return !prev;
+    });
+  }, [droneIndex, droneWaypoints.length, goToWaypoint]);
+
+  const handleDroneTour = useCallback(() => {
+    if (droneWaypoints.length === 0 || droneIndex >= 0) return;
+    setDroneAutoPlay(true);
+    goToWaypoint(0);
+  }, [droneWaypoints, droneIndex, goToWaypoint]);
+
+  const handleStopTour = useCallback(() => {
+    setDroneIndex(-1);
+    setDroneAutoPlay(false);
+    setActiveDroneWaypoint(null);
+    if (droneTimerRef.current) clearTimeout(droneTimerRef.current);
+  }, [setActiveDroneWaypoint]);
+
+  // Auto-play effect: schedule next waypoint when auto-playing
+  React.useEffect(() => {
+    if (!droneAutoPlay || droneIndex < 0 || droneIndex >= droneWaypoints.length)
+      return;
+    const wp = droneWaypoints[droneIndex];
+    const waitMs = ((wp.duration || 3) + (wp.pause_after || 1)) * 1000;
+    droneTimerRef.current = setTimeout(() => {
+      handleNext();
+    }, waitMs);
+    return () => {
+      if (droneTimerRef.current) clearTimeout(droneTimerRef.current);
     };
-    flyNext();
-  }, [setIsDroneFlying, setActiveDroneWaypoint]);
+  }, [droneAutoPlay, droneIndex, droneWaypoints, handleNext]);
 
   return (
     <main className="relative h-screen w-screen overflow-hidden bg-black text-slate-100 font-sans">
@@ -284,10 +383,16 @@ export default function Home() {
         >
           <LandingPage
             onStart={handleStart}
-            defaultLocation={(defaultLocation ?? NYC_FALLBACK) as LocSelectorDefault}
-            onLocationChange={(loc: LocSelectorDefault) =>
-              useSimulationStore.getState().setDefaultLocation(loc as DefaultLocation)
+            defaultLocation={
+              (defaultLocation ?? NYC_FALLBACK) as LocSelectorDefault
             }
+            onLocationChange={(loc: LocSelectorDefault) =>
+              useSimulationStore
+                .getState()
+                .setDefaultLocation(loc as DefaultLocation)
+            }
+            useMockData={useMockData}
+            onToggleMockData={() => setUseMockData((prev) => !prev)}
           />
         </div>
       )}
@@ -295,14 +400,20 @@ export default function Home() {
       {/* 3D Map Viewport Background */}
       <div className="absolute inset-0 z-0">
         <Map3D
-          viewport={(viewport as any) ?? undefined}
+          viewport={viewport ?? undefined}
           location={location ?? undefined}
           recommendations={recommendationsData}
           selectedRecommendation={selectedRecommendation ?? undefined}
+          onSelectRecommendation={(rec) =>
+            setSelectedRecommendation(
+              selectedRecommendation?.name === rec.name ? null : rec,
+            )
+          }
           recenterTrigger={recenterTrigger}
           layersVisible={layersVisible}
           weatherState={weatherState}
           droneWaypoint={activeDroneWaypoint ?? undefined}
+          activePOIName={activePOIName}
         />
       </div>
 
@@ -360,44 +471,84 @@ export default function Home() {
             </button>
 
             {droneWaypoints.length > 0 && (
-              <button
-                onClick={handleDroneTour}
-                disabled={isDroneFlying}
-                className={`backdrop-blur-xl shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-4 py-3 flex items-center space-x-2 pointer-events-auto transition-all duration-300 group border ${
-                  isDroneFlying
-                    ? "bg-purple-500/40 border-purple-400/50 cursor-not-allowed"
-                    : "bg-purple-500/20 hover:bg-purple-500/40 border-purple-400/50"
-                }`}
-                title="Start autonomous drone camera tour"
-              >
-                <svg
-                  xmlns="http://www.w3.org/2000/svg"
-                  width="16"
-                  height="16"
-                  viewBox="0 0 24 24"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={`transition-colors ${
-                    isDroneFlying
-                      ? "text-purple-200 animate-pulse"
-                      : "text-purple-300 group-hover:text-white"
-                  }`}
-                >
-                  <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"></path>
-                </svg>
-                <span
-                  className={`text-xs font-bold transition-colors tracking-wider ${
-                    isDroneFlying
-                      ? "text-purple-200"
-                      : "text-purple-300 group-hover:text-white"
-                  }`}
-                >
-                  {isDroneFlying ? "FLYING..." : "DRONE TOUR"}
-                </span>
-              </button>
+              <>
+                {droneIndex === -1 ? (
+                  <button
+                    onClick={handleDroneTour}
+                    className="bg-purple-500/20 hover:bg-purple-500/40 border border-purple-400/50 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-4 py-3 flex items-center space-x-2 pointer-events-auto transition-all duration-300 group"
+                    title="Start autonomous drone camera tour"
+                  >
+                    <svg
+                      xmlns="http://www.w3.org/2000/svg"
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="text-purple-300 group-hover:text-white transition-colors"
+                    >
+                      <path d="M17.8 19.2 16 11l3.5-3.5C21 6 21.5 4 21 3c-1-.5-3 0-4.5 1.5L13 8 4.8 6.2c-.5-.1-.9.1-1.1.5l-.3.5c-.2.5-.1 1 .3 1.3L9 12l-2 3H4l-1 1 3 2 2 3 1-1v-3l3-2 3.5 5.3c.3.4.8.5 1.3.3l.5-.2c.4-.3.6-.7.5-1.2z"></path>
+                    </svg>
+                    <span className="text-xs font-bold text-purple-300 group-hover:text-white transition-colors tracking-wider">
+                      DRONE TOUR
+                    </span>
+                  </button>
+                ) : (
+                  <div className="bg-black/40 backdrop-blur-2xl border border-purple-400/30 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-2 py-1.5 flex items-center space-x-1 pointer-events-auto">
+                    <button
+                      onClick={handlePrev}
+                      disabled={droneIndex <= 0}
+                      className="rounded-full px-3 py-2 text-xs font-bold tracking-wider transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed text-purple-300 hover:bg-purple-500/30 hover:text-white"
+                      title="Previous waypoint"
+                    >
+                      PREV
+                    </button>
+
+                    <div className="px-3 py-1 flex flex-col items-center min-w-[120px]">
+                      <span className="text-[10px] font-bold text-white/50 tracking-widest uppercase leading-none truncate max-w-[140px]">
+                        {droneIndex >= 0
+                          ? droneWaypoints[droneIndex]?.label
+                          : "—"}
+                      </span>
+                      <span className="text-xs font-semibold text-purple-300">
+                        {`${droneIndex + 1}/${droneWaypoints.length} places`}
+                      </span>
+                    </div>
+
+                    <button
+                      onClick={handleNext}
+                      disabled={droneIndex >= droneWaypoints.length - 1}
+                      className="rounded-full px-3 py-2 text-xs font-bold tracking-wider transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed text-purple-300 hover:bg-purple-500/30 hover:text-white"
+                      title="Next waypoint"
+                    >
+                      NEXT
+                    </button>
+
+                    <div className="w-px h-6 bg-purple-400/30 mx-1" />
+
+                    <button
+                      onClick={handlePlayPause}
+                      className="rounded-full px-3 py-2 text-xs font-bold tracking-wider transition-all duration-200 text-purple-300 hover:bg-purple-500/30 hover:text-white"
+                      title={
+                        droneAutoPlay ? "Pause auto-play" : "Resume auto-play"
+                      }
+                    >
+                      {droneAutoPlay ? "PAUSE" : "PLAY"}
+                    </button>
+
+                    <button
+                      onClick={handleStopTour}
+                      className="rounded-full px-3 py-2 text-xs font-bold tracking-wider transition-all duration-200 text-red-400 hover:bg-red-500/30 hover:text-red-300"
+                      title="Stop tour"
+                    >
+                      STOP
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         )}
@@ -447,28 +598,14 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Voice Assistant */}
-        <VoiceAssistant
-          onProfileData={(profile, placeId) => {
-            setProfileData(profile as any);
-          }}
-          onRecommendations={(recs) => {
-            setRecommendationsData(recs as any);
-          }}
-          onDroneWaypoints={(waypoints) => {
-            setDroneWaypoints(waypoints as any);
-          }}
-          onDroneTourStart={handleDroneTour}
-          onNarratedTourResult={handleNarratedTourResult}
-          onWebSocketReady={handleWebSocketReady}
-        />
-
         {/* Right Floating Recommendations Panel */}
         {recommendationsData && recommendationsData.length > 0 && (
           <div className="absolute inset-y-6 right-6 w-[400px] z-10 hidden lg:flex flex-col">
             <RecommendationsPanel
               recommendations={recommendationsData}
-              onSelectRecommendation={(rec: any) => setSelectedRecommendation(rec)}
+              onSelectRecommendation={(rec: SimRecommendation) =>
+                setSelectedRecommendation(rec)
+              }
               profileData={profileData ?? undefined}
             />
           </div>
@@ -487,6 +624,24 @@ export default function Home() {
         onResume={tourPlayback.resume}
         onStop={tourPlayback.stop}
       />
+
+      {/* Voice Assistant — fixed bottom-center */}
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-[100] flex flex-col items-center space-y-3 pointer-events-auto">
+        <VoiceAssistant
+          onProfileData={(profile) => {
+            setProfileData(profile);
+          }}
+          onRecommendations={(recs) => {
+            setRecommendationsData(recs);
+          }}
+          onDroneWaypoints={(waypoints) => {
+            setDroneWaypoints(waypoints);
+          }}
+          onDroneTourStart={handleDroneTour}
+          onNarratedTourResult={handleNarratedTourResult}
+          onWebSocketReady={handleWebSocketReady}
+        />
+      </div>
     </main>
   );
 }

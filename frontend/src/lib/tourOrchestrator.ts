@@ -14,7 +14,10 @@
  */
 
 import { useSimulationStore } from "@/store/useSimulationStore";
-import { startAudioClockBridge, stopAudioClockBridge, getAudioContext } from "./audioClockBridge";
+import {
+  startAudioClockBridge,
+  stopAudioClockBridge,
+} from "./audioClockBridge";
 import { loadTrajectory, type TrajectorySpline } from "./trajectoryLoader";
 import { startCameraSync, stopCameraSync } from "./cameraSyncController";
 import { getViewer } from "./spatialPerceptionEngine";
@@ -33,7 +36,7 @@ export interface TourOrchestratorCallbacks {
   }) => void;
   sendTourLifecycle: (
     event: "tour_start" | "tour_pause" | "tour_resume" | "tour_stop",
-    extra?: { opening_narration?: string }
+    extra?: { opening_narration?: string },
   ) => void;
 }
 
@@ -64,7 +67,7 @@ export function initOrchestrator(callbacks: TourOrchestratorCallbacks): void {
  */
 export function startTour(
   timeline: NarrationTimeline,
-  audioContext: AudioContext
+  audioContext: AudioContext,
 ): boolean {
   const store = useSimulationStore.getState();
   const viewer = getViewer();
@@ -75,7 +78,9 @@ export function startTour(
   }
 
   if (!_callbacks) {
-    console.error("[TourOrchestrator] Orchestrator not initialized — call initOrchestrator first");
+    console.error(
+      "[TourOrchestrator] Orchestrator not initialized — call initOrchestrator first",
+    );
     return false;
   }
 
@@ -113,8 +118,8 @@ export function startTour(
 
   console.log(
     `[TourOrchestrator] Tour started: "${timeline.place_name}" — ` +
-    `${timeline.total_segments} segments, ` +
-    `~${timeline.total_estimated_duration_s.toFixed(0)}s total`
+      `${timeline.total_segments} segments, ` +
+      `~${timeline.total_estimated_duration_s.toFixed(0)}s total`,
   );
 
   // After a brief opening delay, transition to "playing"
@@ -133,7 +138,8 @@ export function startTour(
  */
 export function pauseTour(): void {
   const store = useSimulationStore.getState();
-  if (store.tourStatus !== "playing" && store.tourStatus !== "narrating") return;
+  if (store.tourStatus !== "playing" && store.tourStatus !== "narrating")
+    return;
 
   store.setTourStatus("paused");
   _callbacks?.sendTourLifecycle("tour_pause");
@@ -183,9 +189,18 @@ export function stopTour(): void {
  */
 function checkSegmentAdvancement(): void {
   const store = useSimulationStore.getState();
-  const { narrationTimeline, tourStatus, audioPlaybackTime, tourStartAudioTime } = store;
+  const {
+    narrationTimeline,
+    tourStatus,
+    audioPlaybackTime,
+    tourStartAudioTime,
+  } = store;
 
-  if (!narrationTimeline || (tourStatus !== "playing" && tourStatus !== "opening")) return;
+  if (
+    !narrationTimeline ||
+    (tourStatus !== "playing" && tourStatus !== "opening")
+  )
+    return;
 
   const elapsed = audioPlaybackTime - tourStartAudioTime;
   const segments = narrationTimeline.segments;
@@ -201,7 +216,10 @@ function checkSegmentAdvancement(): void {
   }
 
   // If we've advanced to a new segment, send the narration cue
-  if (targetSegmentIndex > _lastSegmentIndex && targetSegmentIndex < segments.length) {
+  if (
+    targetSegmentIndex > _lastSegmentIndex &&
+    targetSegmentIndex < segments.length
+  ) {
     _lastSegmentIndex = targetSegmentIndex;
     store.advanceSegment();
 
@@ -219,7 +237,7 @@ function checkSegmentAdvancement(): void {
 
     console.log(
       `[TourOrchestrator] Segment ${targetSegmentIndex + 1}/${segments.length}: ` +
-      `"${segment.narration_text.substring(0, 50)}..."`
+        `"${segment.narration_text.substring(0, 50)}..."`,
     );
 
     // After the estimated narration duration, go back to "playing"
@@ -244,10 +262,14 @@ function checkSegmentAdvancement(): void {
 export function getTourProgress(): number {
   const store = useSimulationStore.getState();
   const { narrationTimeline, audioPlaybackTime, tourStartAudioTime } = store;
-  if (!narrationTimeline || narrationTimeline.total_estimated_duration_s === 0) return 0;
+  if (!narrationTimeline || narrationTimeline.total_estimated_duration_s === 0)
+    return 0;
 
   const elapsed = audioPlaybackTime - tourStartAudioTime;
-  return Math.min(1, Math.max(0, elapsed / narrationTimeline.total_estimated_duration_s));
+  return Math.min(
+    1,
+    Math.max(0, elapsed / narrationTimeline.total_estimated_duration_s),
+  );
 }
 
 /**

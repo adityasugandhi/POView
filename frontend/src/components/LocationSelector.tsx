@@ -11,7 +11,7 @@ export interface DefaultLocation {
   lng: number;
 }
 
-const NYC_DEFAULT: DefaultLocation = {
+export const NYC_DEFAULT: DefaultLocation = {
   placeId: "ChIJOwg_06VPwokRYv534QaPC8g",
   displayName: "New York City",
   lat: 40.73,
@@ -49,11 +49,17 @@ interface Suggestion {
     placeId?: string;
     place?: string;
     text?: { text: string };
-    structuredFormat?: { mainText?: { text: string }; secondaryText?: { text: string } };
+    structuredFormat?: {
+      mainText?: { text: string };
+      secondaryText?: { text: string };
+    };
   };
 }
 
-export default function LocationSelector({ value, onChange }: LocationSelectorProps) {
+export default function LocationSelector({
+  value,
+  onChange,
+}: LocationSelectorProps) {
   const [expanded, setExpanded] = useState(false);
   const [state, setState] = useState<SelectorState>("idle");
   const [query, setQuery] = useState("");
@@ -67,7 +73,10 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
   // Close on outside click
   useEffect(() => {
     function handleClick(e: MouseEvent) {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (
+        containerRef.current &&
+        !containerRef.current.contains(e.target as Node)
+      ) {
         setExpanded(false);
         setQuery("");
         setSuggestions([]);
@@ -106,7 +115,9 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
       setErrorMsg("");
       try {
         const cleanId = placeId.replace("places/", "");
-        const res = await axios.get(`http://localhost:8000/api/resolve_location/${cleanId}`);
+        const res = await axios.get(
+          `http://localhost:8000/api/resolve_location/${cleanId}`,
+        );
         const loc: DefaultLocation = {
           placeId: res.data.placeId,
           displayName: res.data.displayName,
@@ -125,12 +136,19 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
       }
       setState("idle");
     },
-    [onChange]
+    [onChange],
   );
 
   const useMyLocation = useCallback(async () => {
     if (!navigator.geolocation) {
-      setErrorMsg("Geolocation not supported");
+      setErrorMsg("Geolocation not supported by your browser");
+      setState("error");
+      return;
+    }
+    if (!window.isSecureContext) {
+      setErrorMsg(
+        "Location requires HTTPS. Please access via localhost or HTTPS.",
+      );
       setState("error");
       return;
     }
@@ -139,9 +157,12 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
     navigator.geolocation.getCurrentPosition(
       async (pos) => {
         try {
-          const res = await axios.get("http://localhost:8000/api/reverse_geocode", {
-            params: { lat: pos.coords.latitude, lng: pos.coords.longitude },
-          });
+          const res = await axios.get(
+            "http://localhost:8000/api/reverse_geocode",
+            {
+              params: { lat: pos.coords.latitude, lng: pos.coords.longitude },
+            },
+          );
           const loc: DefaultLocation = {
             placeId: res.data.placeId,
             displayName: res.data.displayName,
@@ -151,8 +172,14 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
           saveLocation(loc);
           onChange(loc);
           setExpanded(false);
-        } catch {
-          setErrorMsg("Could not resolve your location");
+        } catch (err: unknown) {
+          const isNotFound =
+            axios.isAxiosError(err) && err.response?.status === 404;
+          setErrorMsg(
+            isNotFound
+              ? "Could not identify this location. Try searching instead."
+              : "Network error. Please try again.",
+          );
           setState("error");
           return;
         }
@@ -162,7 +189,7 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
         setErrorMsg("Location access denied");
         setState("error");
       },
-      { timeout: 10000 }
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 300000 },
     );
   }, [onChange]);
 
@@ -190,7 +217,9 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
               {value.displayName}
             </span>
             {isDefault && (
-              <span className="text-[10px] text-white/40 font-mono uppercase tracking-wider">(Default)</span>
+              <span className="text-[10px] text-white/40 font-mono uppercase tracking-wider">
+                (Default)
+              </span>
             )}
           </div>
           <span className="text-xs text-white/40 group-hover:text-cyan-400 transition-colors font-medium">
@@ -211,7 +240,9 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
               onChange={(e) => setQuery(e.target.value)}
               className="flex-1 bg-transparent text-sm text-white placeholder-white/30 outline-none"
             />
-            {isLoading && <Loader2 className="w-4 h-4 text-cyan-400 animate-spin ml-2" />}
+            {isLoading && (
+              <Loader2 className="w-4 h-4 text-cyan-400 animate-spin ml-2" />
+            )}
           </div>
 
           {/* Suggestions dropdown */}
@@ -221,15 +252,21 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
                 const pred = s.placePrediction;
                 if (!pred) return null;
                 const id = pred.placeId || pred.place || "";
-                const main = pred.structuredFormat?.mainText?.text || pred.text?.text || "";
-                const secondary = pred.structuredFormat?.secondaryText?.text || "";
+                const main =
+                  pred.structuredFormat?.mainText?.text ||
+                  pred.text?.text ||
+                  "";
+                const secondary =
+                  pred.structuredFormat?.secondaryText?.text || "";
                 return (
                   <button
                     key={i}
                     onClick={() => selectPlace(id)}
                     className="w-full text-left px-4 py-2.5 hover:bg-white/5 transition-colors flex flex-col"
                   >
-                    <span className="text-sm text-white/90 font-medium">{main}</span>
+                    <span className="text-sm text-white/90 font-medium">
+                      {main}
+                    </span>
                     {secondary && (
                       <span className="text-xs text-white/40">{secondary}</span>
                     )}
@@ -247,7 +284,9 @@ export default function LocationSelector({ value, onChange }: LocationSelectorPr
           >
             <Navigation className="w-4 h-4 text-cyan-400" />
             <span className="text-sm text-white/70 font-medium">
-              {state === "locating" ? "Detecting location..." : "Use My Location"}
+              {state === "locating"
+                ? "Detecting location..."
+                : "Use My Location"}
             </span>
           </button>
 

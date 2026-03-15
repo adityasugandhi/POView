@@ -15,9 +15,15 @@ export function useAudioPlayer() {
     return audioCtxRef.current;
   }, []);
 
+  const chunkCountRef = useRef(0);
+
   const addChunk = useCallback(
     (arrayBuffer: ArrayBuffer) => {
       const ctx = getCtx();
+      chunkCountRef.current += 1;
+      if (chunkCountRef.current === 1) {
+        console.log("[AudioPlayer] first chunk, ctx state:", ctx.state);
+      }
 
       // int16 → float32
       const int16 = new Int16Array(arrayBuffer);
@@ -43,18 +49,17 @@ export function useAudioPlayer() {
 
       source.onended = () => {
         activeSourcesRef.current = activeSourcesRef.current.filter(
-          (s) => s !== source
+          (s) => s !== source,
         );
         if (activeSourcesRef.current.length === 0) {
           setIsPlaying(false);
         }
       };
 
-      nextStartTimeRef.current +=
-        audioBuffer.duration;
+      nextStartTimeRef.current += audioBuffer.duration;
       setIsPlaying(true);
     },
-    [getCtx]
+    [getCtx],
   );
 
   const stop = useCallback(() => {
@@ -67,6 +72,7 @@ export function useAudioPlayer() {
     });
     activeSourcesRef.current = [];
     nextStartTimeRef.current = 0;
+    chunkCountRef.current = 0;
     setIsPlaying(false);
   }, []);
 

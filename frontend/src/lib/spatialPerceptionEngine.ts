@@ -18,7 +18,7 @@ import type { CameraTelemetry, VisiblePOI } from "@/types/simulation";
 
 export type SignificantChangeCallback = (
   telemetry: CameraTelemetry,
-  visiblePOIs: VisiblePOI[]
+  visiblePOIs: VisiblePOI[],
 ) => void;
 
 interface RegisteredPOI {
@@ -31,7 +31,7 @@ interface RegisteredPOI {
 
 // --- Module state ---
 
-let _viewer: any = null; // Cesium.Viewer
+let _viewer: CesiumViewer | null = null;
 let _removeListener: (() => void) | null = null;
 let _lastExecutionTime = 0;
 let _onSignificantChange: SignificantChangeCallback | null = null;
@@ -50,7 +50,7 @@ function haversineDistanceM(
   lat1: number,
   lng1: number,
   lat2: number,
-  lng2: number
+  lng2: number,
 ): number {
   const R = 6371000;
   const toRad = (d: number) => (d * Math.PI) / 180;
@@ -72,13 +72,13 @@ function onPreUpdate() {
   if (!_viewer || !_viewer.camera || !_viewer.scene) return;
 
   // Lazy reference to Cesium (loaded at runtime)
-  const Cesium = (window as any).Cesium;
+  const Cesium = window.Cesium;
   if (!Cesium) return;
 
   try {
     // A) Extract camera telemetry
     const cartographic = Cesium.Cartographic.fromCartesian(
-      _viewer.camera.positionWC
+      _viewer.camera.positionWC,
     );
     const lat = Cesium.Math.toDegrees(cartographic.latitude);
     const lng = Cesium.Math.toDegrees(cartographic.longitude);
@@ -89,7 +89,7 @@ function onPreUpdate() {
 
     let viewRectangle: CameraTelemetry["viewRectangle"] = null;
     const rect = _viewer.scene.camera.computeViewRectangle(
-      _viewer.scene.globe.ellipsoid
+      _viewer.scene.globe.ellipsoid,
     );
     if (rect) {
       viewRectangle = {
@@ -117,19 +117,14 @@ function onPreUpdate() {
     const visibleArray: VisiblePOI[] = [];
 
     if (_registeredPOIs.length > 0) {
-      const cullingVolume =
-        _viewer.scene.camera.frustum.computeCullingVolume(
-          _viewer.camera.positionWC,
-          _viewer.camera.directionWC,
-          _viewer.camera.upWC
-        );
+      const cullingVolume = _viewer.scene.camera.frustum.computeCullingVolume(
+        _viewer.camera.positionWC,
+        _viewer.camera.directionWC,
+        _viewer.camera.upWC,
+      );
 
       for (const poi of _registeredPOIs) {
-        const poiCartesian = Cesium.Cartesian3.fromDegrees(
-          poi.lng,
-          poi.lat,
-          0
-        );
+        const poiCartesian = Cesium.Cartesian3.fromDegrees(poi.lng, poi.lat, 0);
         const boundingSphere = new Cesium.BoundingSphere(poiCartesian, 50);
         const visibility = cullingVolume.computeVisibility(boundingSphere);
         if (visibility !== Cesium.Intersect.OUTSIDE) {
@@ -157,7 +152,7 @@ function onPreUpdate() {
         _previousBBoxCenter.lat,
         _previousBBoxCenter.lng,
         lat,
-        lng
+        lng,
       );
       const altDelta = Math.abs(alt - _previousAlt);
 
@@ -196,8 +191,8 @@ function onPreUpdate() {
  * @param onChange Callback fired when a significant camera change is detected
  */
 export function initSpatialPerception(
-  viewer: any,
-  onChange?: SignificantChangeCallback
+  viewer: CesiumViewer,
+  onChange?: SignificantChangeCallback,
 ): void {
   _viewer = viewer;
   _onSignificantChange = onChange || null;
@@ -208,7 +203,9 @@ export function initSpatialPerception(
 
   // Attach to the scene's preUpdate event
   _removeListener = viewer.scene.preUpdate.addEventListener(onPreUpdate);
-  console.log("[SpatialPerception] Initialized — 500ms throttle, frustum culling active.");
+  console.log(
+    "[SpatialPerception] Initialized — 500ms throttle, frustum culling active.",
+  );
 }
 
 /**
@@ -237,7 +234,7 @@ export function registerPOIs(
     lng: number;
     type?: string;
     rating?: number;
-  }>
+  }>,
 ): void {
   _registeredPOIs = pois.map((p) => ({
     name: p.name,
@@ -253,6 +250,6 @@ export function registerPOIs(
 /**
  * Get the current viewer reference (for use by other sync modules).
  */
-export function getViewer(): any {
+export function getViewer(): CesiumViewer | null {
   return _viewer;
 }

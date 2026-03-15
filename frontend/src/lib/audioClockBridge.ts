@@ -38,7 +38,9 @@ export function startAudioClockBridge(audioContext: AudioContext): void {
   }
 
   _rafId = requestAnimationFrame(tick);
-  console.log("[AudioClockBridge] Started — syncing AudioContext.currentTime to Zustand at ~60fps");
+  console.log(
+    "[AudioClockBridge] Started — syncing AudioContext.currentTime to Zustand at ~60fps",
+  );
 }
 
 /**
@@ -68,6 +70,6 @@ export function getPreciseAudioTime(): number {
   if (!_audioContext) return 0;
   const baseTime = _audioContext.currentTime;
   // outputLatency might not be available in all browsers
-  const latency = (_audioContext as any).outputLatency ?? 0;
+  const latency = _audioContext.outputLatency ?? 0;
   return baseTime + latency;
 }
