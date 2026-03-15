@@ -99,5 +99,68 @@ export function useLiveWebSocket({
     }
   }, []);
 
-  return { connect, disconnect, sendAudio, sendText, isConnected };
+  /** Send spatial context to the voice agent (for <SPATIAL_CONTEXT> injection) */
+  const sendCameraContext = useCallback(
+    (payload: {
+      lat: number;
+      lng: number;
+      alt: number;
+      heading: number;
+      pitch: number;
+      visible_pois: Array<{ name: string; type: string; rating: number }>;
+      bounding_box: { west: number; south: number; east: number; north: number };
+    }) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({ type: "camera_context", ...payload })
+        );
+      }
+    },
+    []
+  );
+
+  /** Send narration cue at segment boundaries (for [NARRATION_CUE] injection) */
+  const sendTourProgress = useCallback(
+    (payload: {
+      segment_id: number;
+      narration_text: string;
+      poi_names: string[];
+      transition_description: string;
+      playback_state: "segment_boundary" | "playing" | "paused" | "completed";
+      audio_time_s: number;
+    }) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({ type: "tour_progress", ...payload })
+        );
+      }
+    },
+    []
+  );
+
+  /** Send tour lifecycle events (start/pause/resume/stop) */
+  const sendTourLifecycle = useCallback(
+    (
+      event: "tour_start" | "tour_pause" | "tour_resume" | "tour_stop",
+      extra?: { opening_narration?: string }
+    ) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        wsRef.current.send(
+          JSON.stringify({ type: event, ...extra })
+        );
+      }
+    },
+    []
+  );
+
+  return {
+    connect,
+    disconnect,
+    sendAudio,
+    sendText,
+    sendCameraContext,
+    sendTourProgress,
+    sendTourLifecycle,
+    isConnected,
+  };
 }

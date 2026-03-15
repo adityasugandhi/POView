@@ -9,7 +9,7 @@ from services.places_service import (
 )
 from services.gemini_client import parse_contextual_intent
 from services.weather_service import fetch_weather_forecast
-from agents.workflow import run_neighborhood_workflow
+from agents.workflow import run_neighborhood_workflow, run_narrated_tour_workflow
 
 
 async def search_neighborhood(place_query: str, intent: str = "general exploration") -> dict:
@@ -135,4 +135,61 @@ async def start_drone_tour(place_query: str) -> dict:
         "action": "start_drone_tour",
         "place_query": place_query,
         "message": "Starting drone tour! The camera will fly over the key points of interest.",
+    }
+
+
+async def start_narrated_tour(place_query: str, intent: str = "general exploration") -> dict:
+    """Start a synchronized narrated drone tour with voice narration aligned to camera
+    movements. Call this when the user wants a guided tour, narrated flyover, or
+    immersive exploration of a neighborhood.
+
+    Args:
+        place_query: The location to tour (e.g. "Williamsburg Brooklyn").
+        intent: What aspect to focus on (e.g. "nightlife", "food scene", "family-friendly").
+    """
+    # 1. Resolve location
+    predictions = await get_autocomplete_predictions(place_query)
+    if not predictions:
+        return {"error": f"Could not find a location matching '{place_query}'."}
+
+    place_id = predictions[0].get("placePrediction", {}).get("placeId", "")
+    if not place_id:
+        return {"error": "Could not resolve place ID."}
+
+    location_details = await get_places_details(place_id)
+    if not location_details or not location_details.get("geometry"):
+        return {"error": "Could not retrieve location details."}
+
+    lat = location_details["geometry"]["location"]["lat"]
+    lng = location_details["geometry"]["location"]["lng"]
+
+    # 2. Get nearby places and weather
+    import asyncio
+    nearby_places, weather = await asyncio.gather(
+        get_nearby_places(lat, lng),
+        fetch_weather_forecast(lat, lng),
+    )
+
+    # 3. Run the enhanced 4-agent narrated tour pipeline
+    try:
+        result = await run_narrated_tour_workflow(
+            place_id=place_id,
+            location_details=location_details,
+            nearby_places=nearby_places,
+            weather=weather,
+            intent=intent,
+        )
+    except Exception as e:
+        return {"error": f"Narrated tour generation failed: {str(e)}"}
+
+    return {
+        "action": "start_narrated_tour",
+        "place_id": place_id,
+        "place_name": location_details.get("name", place_query),
+        "location": {"lat": lat, "lng": lng},
+        "viewport": location_details.get("geometry", {}).get("viewport"),
+        "weather": weather,
+        "profile": result.get("profile_data", {}),
+        "narration_timeline": result.get("narration_timeline", {}),
+        "visualization_plan": result.get("visualization_plan", {}),
     }

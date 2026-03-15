@@ -4,6 +4,7 @@ import { Mic, MicOff } from "lucide-react";
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useLiveWebSocket, TranscriptLine } from "@/hooks/useLiveWebSocket";
+import { unlockSharedAudioContext } from "@/lib/sharedAudioContext";
 
 // Shared types with page.tsx — kept inline to avoid a separate types file
 interface NeighborhoodProfile {
@@ -29,22 +30,29 @@ export interface VoiceAssistantProps {
   onRecommendations?: (recs: Recommendation[]) => void;
   onDroneWaypoints?: (waypoints: CameraWaypoint[]) => void;
   onDroneTourStart?: () => void;
+  onNarratedTourResult?: (data: Record<string, unknown>) => void;
+  onWebSocketReady?: (methods: {
+    sendTourProgress: (...args: any[]) => void;
+    sendTourLifecycle: (...args: any[]) => void;
+    sendCameraContext: (...args: any[]) => void;
+  }) => void;
 }
 
 type VoiceState = "idle" | "listening" | "processing" | "speaking";
-
-const MAX_TRANSCRIPT_LINES = 3;
 
 export default function VoiceAssistant({
   onProfileData,
   onRecommendations,
   onDroneWaypoints,
   onDroneTourStart,
+  onNarratedTourResult,
+  onWebSocketReady,
 }: VoiceAssistantProps) {
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [transcript, setTranscript] = useState<TranscriptLine[]>([]);
   const [panelVisible, setPanelVisible] = useState(false);
   const fadeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const transcriptEndRef = useRef<HTMLDivElement>(null);
 
   // --- Audio player ---
   const { addChunk: addAudioChunk, stop: stopPlayback, isPlaying } = useAudioPlayer();
@@ -59,10 +67,7 @@ export default function VoiceAssistant({
   );
 
   const handleTranscript = useCallback((line: TranscriptLine) => {
-    setTranscript((prev) => {
-      const next = [...prev, line].slice(-MAX_TRANSCRIPT_LINES);
-      return next;
-    });
+    setTranscript((prev) => [...prev, line]);
     setPanelVisible(true);
     if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
   }, []);
@@ -96,9 +101,12 @@ export default function VoiceAssistant({
         case "start_drone_tour":
           onDroneTourStart?.();
           break;
+        case "start_narrated_tour":
+          onNarratedTourResult?.(d);
+          break;
       }
     },
-    [onProfileData, onDroneWaypoints, onRecommendations, onDroneTourStart]
+    [onProfileData, onDroneWaypoints, onRecommendations, onDroneTourStart, onNarratedTourResult]
   );
 
   const handleStateChange = useCallback((state: string) => {
@@ -111,7 +119,7 @@ export default function VoiceAssistant({
   }, []);
 
   // --- WebSocket hook ---
-  const { connect, disconnect, sendAudio, sendText, isConnected } =
+  const { connect, disconnect, sendAudio, sendText, sendCameraContext, sendTourProgress, sendTourLifecycle, isConnected } =
     useLiveWebSocket({
       onAudio: handleAudio,
       onTranscript: handleTranscript,
@@ -119,6 +127,22 @@ export default function VoiceAssistant({
       onStateChange: handleStateChange,
       onError: handleError,
     });
+
+  // Expose WebSocket methods for tour orchestrator
+  const wsMethodsExposed = React.useRef(false);
+  React.useEffect(() => {
+    if (isConnected && !wsMethodsExposed.current) {
+      wsMethodsExposed.current = true;
+      onWebSocketReady?.({
+        sendTourProgress,
+        sendTourLifecycle,
+        sendCameraContext,
+      });
+    }
+    if (!isConnected) {
+      wsMethodsExposed.current = false;
+    }
+  }, [isConnected, sendTourProgress, sendTourLifecycle, sendCameraContext, onWebSocketReady]);
 
   // --- Mic recorder ---
   const handleChunk = useCallback(
@@ -138,13 +162,14 @@ export default function VoiceAssistant({
       setVoiceState(isRecording ? "listening" : "idle");
       // Start fade-out timer
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
-      fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 3000);
+      fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 8000);
     }
   }, [isPlaying, voiceState, isRecording]);
 
   // --- Toggle mic ---
   const handleToggle = useCallback(async () => {
     if (!isConnected) {
+      await unlockSharedAudioContext();
       // Connect first, then start mic
       const sessionId = crypto.randomUUID();
       connect(sessionId);
@@ -159,7 +184,7 @@ export default function VoiceAssistant({
       disconnect();
       setVoiceState("idle");
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
-      fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 3000);
+      fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 8000);
     }
   }, [
     isConnected,
@@ -176,6 +201,13 @@ export default function VoiceAssistant({
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
     };
   }, []);
+
+  // Auto-scroll transcript
+  useEffect(() => {
+    if (panelVisible && transcriptEndRef.current) {
+      transcriptEndRef.current.scrollIntoView({ behavior: "smooth" });
+    }
+  }, [transcript, panelVisible]);
 
   // --- Button style by state ---
   const buttonStyle = {
@@ -211,15 +243,15 @@ export default function VoiceAssistant({
 
       {/* Transcript panel */}
       {panelVisible && transcript.length > 0 && (
-        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[480px] bg-black/60 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 z-20 pointer-events-none transition-opacity duration-500">
-          <div className="space-y-2">
+        <div className="absolute bottom-6 left-1/2 -translate-x-1/2 w-[480px] bg-black/80 backdrop-blur-2xl border border-white/20 rounded-2xl p-4 z-20 transition-opacity duration-500 flex flex-col pointer-events-auto shadow-[0_8px_32px_0_rgba(0,0,0,0.5)]">
+          <div className="max-h-48 overflow-y-auto space-y-4 pr-2">
             {transcript.map((line, i) => (
               <p
                 key={i}
                 className={`text-sm leading-relaxed ${
                   line.role === "user"
-                    ? "text-white/50"
-                    : "text-white font-medium"
+                    ? "text-white/60 font-medium"
+                    : "text-white font-semibold"
                 }`}
               >
                 <span className="text-xs uppercase tracking-widest mr-2 opacity-60">
@@ -228,9 +260,10 @@ export default function VoiceAssistant({
                 {line.text}
               </p>
             ))}
+            <div ref={transcriptEndRef} />
           </div>
           {/* State indicator dot */}
-          <div className="mt-3 flex items-center space-x-2">
+          <div className="mt-4 pt-3 border-t border-white/10 flex items-center space-x-2 shrink-0">
             <span
               className={`w-2 h-2 rounded-full ${
                 voiceState === "idle"
@@ -242,7 +275,7 @@ export default function VoiceAssistant({
                   : "bg-green-400 animate-pulse"
               }`}
             />
-            <span className="text-xs text-white/30 tracking-widest uppercase">
+            <span className="text-xs text-white/40 tracking-widest uppercase font-bold">
               {voiceState}
             </span>
           </div>

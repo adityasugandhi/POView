@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback } from "react";
+import { getSharedAudioContext } from "@/lib/sharedAudioContext";
 
 export function useAudioPlayer() {
   const [isPlaying, setIsPlaying] = useState(false);
@@ -8,7 +9,7 @@ export function useAudioPlayer() {
 
   const getCtx = useCallback(() => {
     if (!audioCtxRef.current || audioCtxRef.current.state === "closed") {
-      audioCtxRef.current = new AudioContext({ sampleRate: 24000 });
+      audioCtxRef.current = getSharedAudioContext();
       nextStartTimeRef.current = 0;
     }
     return audioCtxRef.current;

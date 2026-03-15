@@ -1,7 +1,7 @@
 # POView — Architecture Review Document
 
-> **Date**: March 14, 2026  
-> **Version**: V5 (current production codebase)  
+> **Date**: March 15, 2026  
+> **Version**: V5.1 (live voice pipeline fully integrated)  
 > **Repository**: `gods_eye` (codename) → branded as **POView**
 
 ---
@@ -17,7 +17,7 @@
 | **Contextual Neighborhood Profiling** | A user types a location + free-text intent (e.g., "quiet café in Williamsburg"). The system resolves the place, aggregates nearby POI data, fetches live weather, and invokes Gemini to generate a structured `NeighborhoodProfile` with scores, highlights, insider tips, and demographic fit assessments. |
 | **AI Proximity Search** | Uses Gemini to parse the user's intent into Places API keywords, then searches within a configurable radius, returning up to 5 geo-tagged recommendations with actual walking route polylines rendered on the 3D map. |
 | **Autonomous Drone Camera Tours** | An Agent ADK pipeline extracts POIs from a narrative, computes camera waypoints (altitude, heading, pitch), and streams them via SSE. The frontend plays them as a cinematic flyover sequence on the CesiumJS globe. |
-| **Live Voice Assistant (V2, in progress)** | A bidirectional WebSocket + Gemini Live API agent (`gemini-2.5-flash-native-audio-preview`) enables voice-based neighborhood exploration. The agent has tool access to `search_neighborhood`, `get_recommendations`, and `start_drone_tour`. |
+| **Live Voice Assistant** | A fully implemented bidirectional WebSocket + Gemini Live API agent (`gemini-2.5-flash-native-audio-preview`) enables real-time voice-based neighborhood exploration. The frontend captures mic audio via an `AudioWorklet` (16kHz PCM), streams it over WebSocket, and plays back 24kHz PCM responses through a queued `AudioContext` player. The agent has tool access to `search_neighborhood`, `get_recommendations`, and `start_drone_tour` — tool results are merged into the same UI state pipeline as text search, enabling seamless voice → visual transitions. |
 | **Weather-Adaptive 3D Visualization** | Real-time weather data from Open-Meteo influences both the AI-generated prose (vibe descriptions are adapted to current conditions) and the Cesium globe visuals (fog density, sky saturation, brightness). |
 | **Glassmorphic Premium UI** | Landing page with animated globe, floating search with autocomplete, left-side insight panel with lifestyle scores and highlights, and right-side recommendation cards — all styled with a dark glassmorphism aesthetic. |
 
@@ -50,6 +50,8 @@
 | **Tailwind CSS 4** | Styling (glassmorphism, dark mode) |
 | **Axios** | HTTP client for backend API calls |
 | **Lucide React** | Icon system |
+| **Web Audio API + AudioWorklet** | Real-time mic capture (16kHz Int16 PCM) and audio playback (24kHz) for the voice pipeline |
+| **WebSocket (native)** | Bidirectional binary + JSON streaming for live voice sessions |
 
 ### Infrastructure
 
@@ -94,7 +96,14 @@ graph TD
         MAP["Map3D<br/>(CesiumJS + Google 3D Tiles)"]
         WE["WeatherEffects<br/>(Fog/Sky Atmosphere)"]
         PIN["RecommendationPin3D<br/>(3D Floating Cards)"]
-        DRONE["Drone Tour<br/>(Camera Waypoint Sequencer)"]
+        DRONE["Drone Tour<br/>(Client-side Waypoint Sequencer)"]
+        VA["VoiceAssistant<br/>(Mic Button + Transcript Panel)"]
+    end
+
+    subgraph Hooks["React Hooks Layer"]
+        HAR["useAudioRecorder<br/>(AudioWorklet 16kHz PCM)"]
+        HAP["useAudioPlayer<br/>(AudioContext 24kHz Playback)"]
+        HWS["useLiveWebSocket<br/>(Binary + JSON Frames)"]
     end
 
     subgraph Backend["Backend — FastAPI on Port 8000"]
@@ -131,13 +140,19 @@ graph TD
         RD["Redis"]
     end
 
-    %% Frontend → Backend flows
+    %% Frontend → Backend flows (text search)
     SB -->|"POST /api/proximity_search"| API
     SB -->|"GET /api/profile_v2/{id}"| API
     SB -->|"GET /api/autocomplete"| API
     LP -->|"GET /api/resolve_location"| API
     LP -->|"GET /api/reverse_geocode"| API
     MAP -->|"GET /api/drone_stream"| SSE
+
+    %% Voice pipeline
+    VA --> HAR
+    VA --> HAP
+    VA --> HWS
+    HWS -->|"Binary PCM + JSON"| WS
 
     %% Backend → Services
     API --> PS
@@ -232,9 +247,46 @@ sequenceDiagram
     FE->>FE: Apply WeatherEffects (fog, sky atmosphere)
 ```
 
+### Live Voice Assistant — End-to-End Flow
+
+```mermaid
+sequenceDiagram
+    participant U as User (Browser Mic)
+    participant AW as AudioWorklet (16kHz PCM)
+    participant WS as useLiveWebSocket
+    participant BE as Backend WebSocket
+    participant ADK as ADK LiveRunner
+    participant Agent as POViewLiveAgent
+    participant Tools as Live Tools
+    participant Gemini as Gemini Flash Audio
+    participant AP as useAudioPlayer (24kHz)
+
+    U->>AW: Speak into microphone
+    AW->>WS: Int16Array PCM chunks (128 samples)
+    WS->>BE: Binary WebSocket frame
+    BE->>ADK: LiveRequestQueue.send_realtime(Blob)
+    ADK->>Gemini: Bidirectional streaming
+    Gemini-->>ADK: Audio response chunks + transcription
+    ADK-->>BE: Event(content.parts[].inline_data)
+    BE-->>WS: Binary frame (PCM audio)
+    WS-->>AP: ArrayBuffer → Int16 → Float32
+    AP->>U: Queued AudioBufferSource playback
+
+    Note over Agent,Tools: When user mentions a place:
+    Gemini->>Agent: Function call (search_neighborhood)
+    Agent->>Tools: search_neighborhood(place_query, intent)
+    Tools->>Tools: Autocomplete → Details → Nearby + Weather → ADK Workflow
+    Tools-->>Agent: Profile + VisualizationPlan
+    Agent-->>BE: tool_result JSON event
+    BE-->>WS: JSON frame {type: tool_result}
+    WS-->>U: VoiceAssistant merges into page state
+```
+
 ---
 
 ## 6. Agent ADK Pipeline — Detailed Breakdown
+
+### Sequential Workflow (V2 Profile)
 
 The **V2 profile endpoint** uses a `SequentialAgent` from Google ADK that chains three specialized agents:
 
@@ -243,6 +295,18 @@ The **V2 profile endpoint** uses a `SequentialAgent` from Google ADK that chains
 | 1 | **ScriptWriterAgent** | `gemini-2.5-pro` | Writes a 400-600 word grounded narrative about the neighborhood using Google Search for real-time fact verification. Embeds specific place names with coordinates. | `raw_narrative` (free text) |
 | 2 | **GlobeControllerAgent** | `gemini-2.5-flash` | Custom `BaseAgent` that extracts POIs from the narrative, then deterministically computes CesiumJS camera waypoints (establishing shot → POI flyovers → return). | `visualization_plan` (waypoints array) |
 | 3 | **FormatterAgent** | `gemini-2.5-flash` | Strict JSON formatter that structures the raw narrative into the `NeighborhoodProfile` Pydantic schema (scores, highlights, tips, best_for, etc.) | `final_ui_payload` (structured JSON) |
+
+The pipeline is orchestrated by `workflow.py`, which builds an `InMemorySessionService`, creates the `SequentialAgent`, and extracts results from session state. JSON output from LLM calls is sanitized via `json_utils.py` (strips markdown code fences before parsing).
+
+### Live Voice Agent
+
+The **Live Voice Agent** (`live_agent.py`) is a standalone `Agent` using `gemini-2.5-flash-native-audio-preview` for bidirectional audio streaming. It exposes three tools defined in `live_tools.py`:
+
+| Tool | Purpose | Backend Bridge |
+|---|---|---|
+| `search_neighborhood(place_query, intent)` | Full neighborhood analysis — resolves place via autocomplete, fetches details + nearby + weather, then runs the complete 3-agent sequential workflow. | `get_autocomplete_predictions` → `get_places_details` → `get_nearby_places` + `fetch_weather_forecast` → `run_neighborhood_workflow` |
+| `get_recommendations(place_query, intent, radius)` | Targeted place recommendations — resolves location, parses intent to keywords, searches via `contextual_places_search`. | `get_autocomplete_predictions` → `get_places_details` → `parse_contextual_intent` → `contextual_places_search` |
+| `start_drone_tour(place_query)` | Returns a signal payload that the frontend intercepts to trigger the client-side drone tour animation. | Returns `{action: "start_drone_tour"}` (frontend handles playback) |
 
 ---
 
@@ -257,9 +321,10 @@ The system uses strongly-typed Pydantic schemas both for Gemini structured outpu
 | `ComparativeAnalysis` | `models.py` | Two-location comparison (planned feature) |
 | `CinematicNarrative` | `models.py` | "Day in the Life" narrative with place mentions (planned feature) |
 | `CommuteAnalysis` | `models.py` | Transit/commute evaluation (planned feature) |
-| `CameraWaypoint` | `agents/models.py` | Single drone flight segment: lat, lng, altitude, heading, pitch, duration |
+| `CameraWaypoint` | `agents/models.py` | Single drone flight segment: lat, lng, altitude, heading, pitch, duration, pause_after |
 | `VisualizationPlan` | `agents/models.py` | Full drone tour: ordered waypoints + total duration |
 | `ExtractedPOI` | `agents/models.py` | POI with coordinates extracted from narrative text |
+| `TranscriptLine` | `hooks/useLiveWebSocket.ts` | Voice transcript entry: role (user/agent), text, finished flag |
 
 ---
 
@@ -280,12 +345,20 @@ graph TD
     RP["RecommendationsPanel<br/>(AI Targeting Cards)"]
     GLOBE["Globe<br/>(ui/globe — Cobe Landing Anim)"]
     PIN3D["PinContainer<br/>(ui/3d-pin — Aceternity)"]
+    VA["VoiceAssistant<br/>(Mic Toggle + Transcript)"]
+
+    subgraph Hooks["Custom React Hooks"]
+        HAR["useAudioRecorder<br/>(AudioWorklet → Int16 PCM)"]
+        HAP["useAudioPlayer<br/>(Queued AudioContext)"]
+        HWS["useLiveWebSocket<br/>(Binary + JSON Frames)"]
+    end
 
     PAGE --> LP
     PAGE --> SB
     PAGE --> MAP
     PAGE --> IP
     PAGE --> RP
+    PAGE --> VA
     LP --> LS
     LP --> GLOBE
     MAP --> WE
@@ -293,7 +366,14 @@ graph TD
     MAP --> CAM
     MAP --> PIN
     PIN --> PIN3D
+    VA --> HAR
+    VA --> HAP
+    VA --> HWS
 ```
+
+### Voice-to-Visual State Merge
+
+`page.tsx` drives all UI state via top-level `useState` hooks. Both the text search path (`handleSearch`) and the voice path (`handleVoiceSearchResult`) converge into the same state setters (`setProfileData`, `setViewport`, `setLocation`, `setWeatherState`, `setDroneWaypoints`, `setRecommendations`), ensuring a seamless experience regardless of input modality. The drone tour playback (`handleDroneTour`) runs entirely client-side by iterating through `droneWaypoints` with `setTimeout`, feeding each waypoint to `Map3D` as `activeDroneWaypoint`.
 
 ---
 
@@ -311,8 +391,10 @@ graph TD
 - **No Authentication**: All endpoints are publicly accessible. CORS is restricted to localhost but there's no user auth layer.
 - **Backend Error Logging**: Uses `print()` statements; a structured logging framework (e.g., `structlog`) would improve observability.
 - **V1 vs V2 Endpoint Duplication**: Both `/api/profile/{id}` (V1, direct Gemini call) and `/api/profile_v2/{id}` (V2, ADK pipeline) exist. V1 could be deprecated.
-- **Frontend State Management**: All state lives in the top-level `page.tsx` via `useState`. As complexity grows, a state management solution (Zustand, Jotai) would reduce prop drilling.
+- **Frontend State Management**: All state lives in the top-level `page.tsx` via `useState`. As complexity grows, a state management solution (Zustand, Jotai) would reduce prop drilling. The voice pipeline adds additional state vectors (`voiceState`, `transcript`, `panelVisible`) that compound this concern.
 - **Missing Tests**: No automated test suite for the core pipeline. The `test_*.py` files in the backend root are individual API scripts, not a proper test framework.
+- **Live Agent Error Handling**: The `ConnectionClosedOK` exception (`1000 None`) from Gemini's WebSocket is logged but not gracefully communicated to the frontend user. The agent should send a structured close-reason message before the socket terminates.
+- **Audio Worklet Path**: The AudioWorklet processor sits at `public/audio-recording-worklet.js` as a static file — it cannot be type-checked or bundled. Consider inlining via Blob URL or using a build plugin.
 
 ### Key Design Decisions
 1. **Google Places New API** over Legacy: Chosen for the field-mask pattern that reduces response payload size and cost.

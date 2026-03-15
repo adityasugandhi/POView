@@ -1,8 +1,9 @@
 "use client";
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect, useRef } from "react";
 import { Viewer, CameraFlyTo, Cesium3DTileset, Entity, PolylineGraphics, PointGraphics, useCesium } from "resium";
 import { Cartesian3, Rectangle, Math as CesiumMath, Color } from "cesium";
 import RecommendationPin3D, { Recommendation } from "./RecommendationPin3D";
+import { initSpatialPerception, destroySpatialPerception } from "@/lib/spatialPerceptionEngine";
 
 interface CameraWaypoint {
     label: string;
@@ -75,6 +76,14 @@ const WeatherEffects = ({ weatherState }: { weatherState?: string }) => {
 
 export default function Map3D({ viewport, location, recommendations = [], selectedRecommendation, recenterTrigger, layersVisible = true, weatherState = "clear", droneWaypoint }: Map3DProps) {
     const GOOGLE_TILE_URL = `https://tile.googleapis.com/v1/3dtiles/root.json?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`;
+    const viewerInitialized = useRef(false);
+
+    // Cleanup spatial perception on unmount
+    useEffect(() => {
+        return () => {
+            destroySpatialPerception();
+        };
+    }, []);
 
     const cameraConfig = useMemo(() => {
         // Highest priority: Drone waypoint (active drone tour)
@@ -222,6 +231,18 @@ export default function Map3D({ viewport, location, recommendations = [], select
                 ref={(e: { cesiumElement?: unknown } | null) => {
                     if (e && e.cesiumElement) {
                         (window as unknown as Record<string, unknown>).cesiumViewer = e.cesiumElement;
+                        if (!viewerInitialized.current) {
+                            viewerInitialized.current = true;
+                            initSpatialPerception(e.cesiumElement, (telemetry, visiblePOIs) => {
+                                // Significant change callback — logs for now, Phase 4 wires to WebSocket
+                                console.log("[SpatialPerception] Significant change:", {
+                                    lat: telemetry.lat.toFixed(4),
+                                    lng: telemetry.lng.toFixed(4),
+                                    alt: telemetry.alt.toFixed(0),
+                                    visiblePOIs: visiblePOIs.length,
+                                });
+                            });
+                        }
                     }
                 }}
             >

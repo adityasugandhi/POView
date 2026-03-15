@@ -62,3 +62,40 @@ class CommuteAnalysis(BaseModel):
 class IntentKeywords(BaseModel):
     keywords: List[str] = Field(..., description="One to three highly actionable search terms derived from the user intent for the Google Places API. Strictly no emojis allowed.")
     search_rationale: str = Field(..., description="A single sentence explaining why these keywords best capture the user's intent. Strictly no emojis allowed.")
+
+
+# --- Narrated Tour Models (Voice-Globe Sync Engine) ---
+
+class TrajectoryTimestamp(BaseModel):
+    """Dense trajectory sample for SampledPositionProperty interpolation."""
+    time_s: float = Field(..., description="Seconds from tour start.")
+    lat: float
+    lng: float
+    alt: float
+    heading: float
+    pitch: float
+
+class NarrationSegment(BaseModel):
+    """One narration segment bound to one camera waypoint."""
+    segment_id: int
+    waypoint: dict = Field(..., description="CameraWaypoint data (label, lat, lng, alt, heading, pitch, duration, pause_after).")
+    narration_text: str = Field(..., description="Text the voice agent should speak at this camera position.")
+    poi_names: List[str] = Field(default_factory=list, description="POIs visible from this camera angle.")
+    poi_context: dict = Field(default_factory=dict, description="POI enrichment: {name: {rating, type, notable_fact}}.")
+    transition_description: str = Field("", description="Describes camera movement, e.g., 'sweeping east along the waterfront'.")
+    estimated_speech_duration_s: float = Field(..., description="word_count / 2.5 seconds.")
+    cumulative_start_time_s: float = Field(..., description="Seconds from tour start when this segment begins.")
+    ambient_notes: str = Field("", description="Weather, architectural style, time-of-day color.")
+
+class NarrationTimeline(BaseModel):
+    """Complete synchronized tour: trajectory + narration segments."""
+    place_name: str
+    place_id: str
+    intent: str = ""
+    total_segments: int
+    total_estimated_duration_s: float
+    opening_narration: str = Field(..., description="Spoken before camera moves (2-3 sentence hook).")
+    closing_narration: str = Field(..., description="Spoken after final waypoint (2-sentence summary).")
+    segments: List[NarrationSegment]
+    weather_context: dict = Field(default_factory=dict)
+    trajectory_timestamps: List[TrajectoryTimestamp] = Field(default_factory=list, description="Dense position samples every 0.5s for SampledPositionProperty.")

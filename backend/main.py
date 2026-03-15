@@ -22,7 +22,7 @@ from services.places_service import get_places_details, get_nearby_places, forma
 from services.gemini_client import generate_neighborhood_profile, parse_contextual_intent
 from services.redis_cache import get_cached_profile, set_cached_profile
 from services.weather_service import fetch_weather_forecast
-from agents import run_neighborhood_workflow
+from agents import run_neighborhood_workflow, run_narrated_tour_workflow
 from agents.live_agent import create_live_agent
 
 app = FastAPI(title="GroundLevel AI Platform")
@@ -328,6 +328,49 @@ async def drone_stream(place_id: str, intent: str = None):
     )
 
 
+@app.get("/api/narrated_tour/{place_id}")
+async def narrated_tour(place_id: str, intent: str = None):
+    """Generate a synchronized narrated drone tour with NarrationTimeline."""
+    cache_key = f"narrated_{place_id}_{intent}" if intent else f"narrated_{place_id}"
+    cached = await get_cached_profile(cache_key)
+    if cached and "narration_timeline" in cached:
+        return cached
+
+    # Resolve location details
+    location_details = await get_places_details(place_id)
+    if not location_details or not location_details.get("geometry"):
+        raise HTTPException(status_code=404, detail="Location not found.")
+
+    lat = location_details["geometry"]["location"]["lat"]
+    lng = location_details["geometry"]["location"]["lng"]
+
+    nearby_places, weather = await asyncio.gather(
+        get_nearby_places(lat, lng),
+        fetch_weather_forecast(lat, lng),
+    )
+
+    result = await run_narrated_tour_workflow(
+        place_id=place_id,
+        location_details=location_details,
+        nearby_places=nearby_places,
+        weather=weather,
+        intent=intent,
+    )
+
+    response = {
+        "place_id": place_id,
+        "location": {"lat": lat, "lng": lng},
+        "weather": weather,
+        "narration_timeline": result.get("narration_timeline", {}),
+        "visualization_plan": result.get("visualization_plan", {}),
+        "profile_data": result.get("profile_data", {}),
+    }
+
+    # Cache for 72 hours
+    await set_cached_profile(cache_key, response, ttl=259200)
+    return response
+
+
 @app.websocket("/ws/live/{session_id}")
 async def live_websocket(websocket: WebSocket, session_id: str):
     """Bidirectional audio streaming via Gemini Live API + ADK."""
@@ -366,13 +409,71 @@ async def live_websocket(websocket: WebSocket, session_id: str):
                         )
                     )
                 elif "text" in data and data["text"]:
-                    # Text message (could be a text command)
+                    # Text message (could be text command, spatial context, or tour cue)
                     try:
                         msg = json.loads(data["text"])
-                        if msg.get("type") == "text_input":
+                        msg_type = msg.get("type")
+
+                        if msg_type == "text_input":
                             live_queue.send_content(
                                 types.Content(
                                     parts=[types.Part(text=msg["text"])],
+                                    role="user",
+                                )
+                            )
+                        elif msg_type == "camera_context":
+                            # Silent spatial context injection (rate-limited client-side to 5s)
+                            visible_pois = msg.get("visible_pois", [])
+                            poi_summary = ", ".join(
+                                [f"{p['name']} ({p.get('type','')}, {p.get('rating','N/A')}★)" for p in visible_pois[:8]]
+                            ) or "no notable POIs visible"
+                            bbox = msg.get("bounding_box", {})
+                            context_text = (
+                                f"<SPATIAL_CONTEXT>"
+                                f"Camera: ({msg.get('lat',0):.4f}, {msg.get('lng',0):.4f}) "
+                                f"alt={msg.get('alt',0):.0f}m heading={msg.get('heading',0):.0f}° "
+                                f"pitch={msg.get('pitch',0):.0f}° | "
+                                f"Visible POIs: {poi_summary} | "
+                                f"View bounds: W={bbox.get('west',0):.4f} S={bbox.get('south',0):.4f} "
+                                f"E={bbox.get('east',0):.4f} N={bbox.get('north',0):.4f}"
+                                f"</SPATIAL_CONTEXT>"
+                            )
+                            live_queue.send_content(
+                                types.Content(
+                                    parts=[types.Part(text=context_text)],
+                                    role="user",
+                                )
+                            )
+                        elif msg_type == "tour_progress":
+                            # Narration cue injection — the agent should speak this
+                            segment_id = msg.get("segment_id", 0)
+                            narration = msg.get("narration_text", "")
+                            poi_names = msg.get("poi_names", [])
+                            transition = msg.get("transition_description", "")
+                            state = msg.get("playback_state", "playing")
+
+                            if state == "segment_boundary" and narration:
+                                cue_text = (
+                                    f"[NARRATION_CUE segment={segment_id}] "
+                                    f"Transition: {transition}. "
+                                    f"Narration: {narration} "
+                                    f"POIs in view: {', '.join(poi_names)}."
+                                )
+                                live_queue.send_content(
+                                    types.Content(
+                                        parts=[types.Part(text=cue_text)],
+                                        role="user",
+                                    )
+                                )
+                        elif msg_type in ("tour_start", "tour_pause", "tour_resume", "tour_stop"):
+                            lifecycle_text = f"[TOUR_LIFECYCLE] Event: {msg_type}"
+                            if msg_type == "tour_start":
+                                opening = msg.get("opening_narration", "")
+                                if opening:
+                                    lifecycle_text += f" | Opening narration to speak: {opening}"
+                            live_queue.send_content(
+                                types.Content(
+                                    parts=[types.Part(text=lifecycle_text)],
                                     role="user",
                                 )
                             )
