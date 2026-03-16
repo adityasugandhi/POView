@@ -47,6 +47,7 @@ declare global {
       position: { clone(): any };
       setView(options: any): void;
       flyTo(options: any): void;
+      lookAtTransform(transform: any, offset?: any): void;
       zoomIn(amount: number): void;
       zoomOut(amount: number): void;
       computeViewRectangle?(ellipsoid: any): any;

@@ -9,7 +9,7 @@ import {
   PointGraphics,
   useCesium,
 } from "resium";
-import { Cartesian3, Rectangle, Math as CesiumMath, Color } from "cesium";
+import { Cartesian3, Rectangle, Math as CesiumMath, Color, Transforms, Matrix4, HeadingPitchRange } from "cesium";
 import RecommendationPin3D from "./RecommendationPin3D";
 import {
   initSpatialPerception,
@@ -19,7 +19,7 @@ import type { CameraWaypoint, Recommendation } from "@/types/simulation";
 
 interface CinematicFlight {
   active: boolean;
-  phase: "high-orbit" | "approach" | "arrive" | "idle";
+  phase: "high-orbit" | "approach" | "arrive" | "orbit" | "idle";
   targetLat: number;
   targetLng: number;
 }
@@ -112,25 +112,85 @@ export default function Map3D({
     };
   }, []);
 
+  // Imperative 360° orbit animation
+  useEffect(() => {
+    if (cinematicFlight?.phase !== "orbit") return;
+
+    const viewer = window.cesiumViewer;
+    if (!viewer) return;
+
+    const { targetLat, targetLng } = cinematicFlight;
+    const targetCartesian = Cartesian3.fromDegrees(targetLng, targetLat, 0);
+    const transform = Transforms.eastNorthUpToFixedFrame(targetCartesian);
+
+    const ORBIT_DURATION_MS = 10000;
+    const ORBIT_RANGE = 120;
+    const BASE_PITCH = CesiumMath.toRadians(-25);
+    const WOBBLE_AMPLITUDE = CesiumMath.toRadians(5);
+    const TWO_PI = Math.PI * 2;
+
+    // Disable user input during orbit
+    viewer.scene.screenSpaceCameraController.enableInputs = false;
+
+    const startTime = performance.now();
+    let removeListener: (() => void) | null = null;
+
+    const onPreUpdate = () => {
+      const elapsed = performance.now() - startTime;
+      const t = Math.min(elapsed / ORBIT_DURATION_MS, 1.0);
+
+      // Smoothstep easing: 3t² - 2t³
+      const eased = t * t * (3 - 2 * t);
+
+      const heading = eased * TWO_PI;
+      const pitch = BASE_PITCH + Math.sin(4 * Math.PI * t) * WOBBLE_AMPLITUDE;
+
+      viewer.camera.lookAtTransform(transform, new HeadingPitchRange(heading, pitch, ORBIT_RANGE));
+
+      if (t >= 1.0) {
+        // Orbit complete — release camera
+        removeListener?.();
+        removeListener = null;
+        viewer.camera.lookAtTransform(Matrix4.IDENTITY);
+        viewer.scene.screenSpaceCameraController.enableInputs = true;
+        // Use dynamic import of store to avoid circular deps
+        const { useSimulationStore } = require("@/store/useSimulationStore");
+        useSimulationStore.getState().setCinematicFlight(null);
+      }
+    };
+
+    removeListener = viewer.scene.preUpdate.addEventListener(onPreUpdate);
+
+    return () => {
+      // Cleanup on early abort (unmount or new flight)
+      if (removeListener) {
+        removeListener();
+        removeListener = null;
+      }
+      viewer.camera.lookAtTransform(Matrix4.IDENTITY);
+      viewer.scene.screenSpaceCameraController.enableInputs = true;
+    };
+  }, [cinematicFlight?.phase, cinematicFlight?.targetLat, cinematicFlight?.targetLng]);
+
   const cameraConfig = useMemo(() => {
     // Highest priority: Cinematic flight sequence
     if (cinematicFlight?.active) {
       const { phase, targetLat, targetLng } = cinematicFlight;
       if (phase === "high-orbit") {
         return {
-          destination: Cartesian3.fromDegrees(targetLng, targetLat + 0.008, 800),
+          destination: Cartesian3.fromDegrees(targetLng - 0.005, targetLat - 0.005, 800),
           orientation: {
-            heading: CesiumMath.toRadians(30),
-            pitch: CesiumMath.toRadians(-45),
+            heading: CesiumMath.toRadians(25),
+            pitch: CesiumMath.toRadians(-40),
             roll: 0,
           },
           duration: 3,
         };
       } else if (phase === "approach") {
         return {
-          destination: Cartesian3.fromDegrees(targetLng + 0.003, targetLat - 0.002, 300),
+          destination: Cartesian3.fromDegrees(targetLng - 0.002, targetLat - 0.002, 300),
           orientation: {
-            heading: CesiumMath.toRadians(150),
+            heading: CesiumMath.toRadians(20),
             pitch: CesiumMath.toRadians(-30),
             roll: 0,
           },
@@ -138,13 +198,20 @@ export default function Map3D({
         };
       } else if (phase === "arrive") {
         return {
-          destination: Cartesian3.fromDegrees(targetLng, targetLat - 0.001, 40),
+          destination: Cartesian3.fromDegrees(targetLng - 0.0005, targetLat - 0.0005, 80),
           orientation: {
-            heading: 0,
-            pitch: CesiumMath.toRadians(-15),
+            heading: CesiumMath.toRadians(15),
+            pitch: CesiumMath.toRadians(-20),
             roll: 0,
           },
           duration: 3,
+        };
+      } else if (phase === "orbit") {
+        // Orbit handled imperatively — return stable no-op config
+        return {
+          destination: Cartesian3.fromDegrees(targetLng, targetLat, 40),
+          orientation: { heading: 0, pitch: CesiumMath.toRadians(-15), roll: 0 },
+          duration: 0,
         };
       }
     }

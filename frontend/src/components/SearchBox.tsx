@@ -1,6 +1,6 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { Search, MapPin, Navigation, Trash2, Globe, ChevronDown } from "lucide-react";
+import { Search, MapPin, Navigation, Trash2, Globe, ChevronDown, ChevronUp } from "lucide-react";
 import { useSimulationStore } from "@/store/useSimulationStore";
 
 interface Suggestion {
@@ -153,11 +153,10 @@ export default function SearchBox({
   // Collapsed mini-bar: click to expand
   if (collapsed) {
     return (
-      <div ref={wrapperRef} className="relative z-50 w-full">
-        <button
-          type="button"
+      <div ref={wrapperRef} className="relative z-50 w-full flex flex-col items-center">
+        <div
           onClick={() => setCollapsed(false)}
-          className="w-full flex items-center justify-between bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl px-4 py-3 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] transition-all hover:border-white/20 hover:bg-black/50 group"
+          className="w-full flex items-center bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl px-4 py-3 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] transition-all hover:border-white/20 hover:bg-black/50 group cursor-pointer"
         >
           <div className="flex items-center space-x-3">
             <Search className="w-4 h-4 text-white/40 group-hover:text-cyan-400 transition-colors" />
@@ -165,18 +164,25 @@ export default function SearchBox({
               {inputValue || "Search location..."}
             </span>
           </div>
-          <ChevronDown className="w-4 h-4 text-white/30 group-hover:text-white/60 transition-colors" />
+        </div>
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="mt-2 flex items-center justify-center w-8 h-8 rounded-full bg-black/40 backdrop-blur-2xl border border-white/10 hover:border-white/20 hover:bg-black/50 transition-all"
+        >
+          <ChevronDown className="w-4 h-4 text-white/30 hover:text-white/60 transition-colors" />
         </button>
       </div>
     );
   }
 
   return (
-    <div ref={wrapperRef} className="relative z-50 w-full">
+    <div ref={wrapperRef} className="relative z-50 w-full flex flex-col items-center">
       <form
         onSubmit={handleSubmit}
-        className="flex flex-col space-y-4 bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] transition-all focus-within:border-white/20"
+        className="relative w-full flex flex-col space-y-4 bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl p-4 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] transition-all focus-within:border-white/20"
       >
+
         {/* Location Input */}
         <div className="relative flex items-center bg-white/5 border border-white/10 rounded-xl focus-within:bg-white/10 focus-within:border-white/30 transition-all p-2">
           <MapPin className="w-5 h-5 ml-2 text-white/50" />
@@ -322,6 +328,14 @@ export default function SearchBox({
           </div>
         )}
       </form>
+      {/* Bottom collapse toggle */}
+      <button
+        type="button"
+        onClick={() => setCollapsed(true)}
+        className="mt-2 flex items-center justify-center w-8 h-8 rounded-full bg-black/40 backdrop-blur-2xl border border-white/10 hover:border-white/20 hover:bg-black/50 transition-all"
+      >
+        <ChevronUp className="w-4 h-4 text-white/30 hover:text-white/60 transition-colors" />
+      </button>
     </div>
   );
 }

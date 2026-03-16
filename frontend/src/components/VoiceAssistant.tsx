@@ -173,7 +173,7 @@ export default function VoiceAssistant({
                 bounding_box: telemetry.viewRectangle || { west: 0, south: 0, east: 0, north: 0 },
               });
             }
-          }, 3500);
+          }, 20000);
           break;
         case "search_neighborhood":
           useSimulationStore.getState().setIsScanning(false);
@@ -280,9 +280,14 @@ export default function VoiceAssistant({
                   targetLat: loc.lat,
                   targetLng: loc.lng,
                 });
-                // Clear cinematic flight after arrival animation
+                // Phase 4: Orbit after arrival animation
                 setTimeout(() => {
-                  useSimulationStore.getState().setCinematicFlight(null);
+                  useSimulationStore.getState().setCinematicFlight({
+                    active: true,
+                    phase: "orbit",
+                    targetLat: loc.lat,
+                    targetLng: loc.lng,
+                  });
                 }, 3000);
               }, 6000);
             }

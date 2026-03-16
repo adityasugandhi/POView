@@ -69,7 +69,7 @@ export interface SimulationState {
   // Cinematic flight state
   cinematicFlight: {
     active: boolean;
-    phase: "high-orbit" | "approach" | "arrive" | "idle";
+    phase: "high-orbit" | "approach" | "arrive" | "orbit" | "idle";
     targetLat: number;
     targetLng: number;
   } | null;

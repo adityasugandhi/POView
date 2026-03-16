@@ -1,5 +1,6 @@
 "use client";
 import React, { useRef, useEffect, useState } from "react";
+import { AnimatePresence, motion } from "motion/react";
 import Image from "next/image";
 import { createPortal } from "react-dom";
 import { useCesium } from "resium";
@@ -321,8 +322,14 @@ const RecommendationPin3D = ({
   const [isVisible, setIsVisible] = useState(false);
   const [isHovered, setIsHovered] = useState(false);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
+  const [clickedOpen, setClickedOpen] = useState(false);
 
-  const showDetail = isActive || isHovered;
+  const showDetail = isActive || isHovered || clickedOpen;
+
+  // Reset local toggle when external active state changes
+  useEffect(() => {
+    if (isActive) setClickedOpen(false);
+  }, [isActive]);
 
   useEffect(() => {
     if (!scene || !recommendation?.lat || !recommendation?.lng) return;
@@ -341,7 +348,7 @@ const RecommendationPin3D = ({
         position3D,
       );
       if (canvasPosition) {
-        overlayRef.current.style.transform = `translate(${canvasPosition.x}px, ${canvasPosition.y}px) translate(-50%, -100%)`;
+        overlayRef.current.style.transform = `translate(${canvasPosition.x - 120}px, ${canvasPosition.y - 208}px)`;
         if (!isVisible) setIsVisible(true);
       } else {
         if (isVisible) setIsVisible(false);
@@ -360,7 +367,7 @@ const RecommendationPin3D = ({
   return (
     <div
       ref={overlayRef}
-      className={`absolute top-0 left-0 pointer-events-auto ${showDetail ? "z-[100]" : "z-10"}`}
+      className={`absolute top-0 left-0 w-60 h-52 overflow-visible pointer-events-auto ${showDetail ? "z-[100]" : "z-10"}`}
       style={{
         display: isVisible ? "block" : "none",
         willChange: "transform",
@@ -369,31 +376,66 @@ const RecommendationPin3D = ({
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Upright floating detail card — appears above the pin on hover/click */}
-      {showDetail && (
-        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[110]">
-          <CardContainer className="inter-var" containerClassName="py-0">
-            <CardBody className="bg-black/80 backdrop-blur-2xl border border-white/15 rounded-2xl p-3 shadow-[0_12px_48px_rgba(0,0,0,0.7)] animate-in fade-in slide-in-from-bottom-2 duration-200 w-auto h-auto">
-              <div onClick={(e) => e.stopPropagation()}>
-                <RichDetailCard
-                  recommendation={recommendation}
-                  onImageClick={(index) => setLightboxIndex(index)}
-                />
-              </div>
-            </CardBody>
-          </CardContainer>
-          {/* Arrow pointer */}
-          <div className="flex justify-center -mt-px">
-            <div className="w-3 h-3 bg-black/80 border-r border-b border-white/15 rotate-45 -translate-y-1.5" />
-          </div>
-        </div>
-      )}
+      <AnimatePresence>
+        {showDetail && (
+          <motion.div
+            key="detail-card"
+            layout={false}
+            className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 z-[110]"
+            initial={{
+              clipPath: "circle(0% at 50% 100%)",
+              opacity: 0,
+              scale: 0.3,
+              filter: "blur(8px) brightness(2)",
+            }}
+            animate={{
+              clipPath: "circle(150% at 50% 50%)",
+              opacity: 1,
+              scale: 1,
+              filter: "blur(0px) brightness(1)",
+            }}
+            exit={{
+              clipPath: "circle(0% at 50% 100%)",
+              opacity: 0,
+              scale: 0.4,
+              filter: "blur(12px) brightness(0)",
+              rotate: -3,
+            }}
+            transition={{
+              duration: 0.5,
+              ease: [0.55, 0.06, 0.68, 0.19],
+            }}
+          >
+            {/* Event horizon glow ring */}
+            <div className="pointer-events-none absolute bottom-0 left-1/2 w-16 h-16 rounded-full bg-[radial-gradient(circle,rgba(6,182,212,0.6)_0%,transparent_70%)] animate-[singularityPulse_0.5s_ease-out_forwards]" />
+
+            <CardContainer className="inter-var" containerClassName="py-0">
+              <CardBody className="bg-black/80 backdrop-blur-2xl border border-white/15 rounded-2xl p-3 shadow-[0_12px_48px_rgba(0,0,0,0.7)] w-auto h-auto">
+                <div onClick={(e) => e.stopPropagation()}>
+                  <RichDetailCard
+                    recommendation={recommendation}
+                    onImageClick={(index) => setLightboxIndex(index)}
+                  />
+                </div>
+              </CardBody>
+            </CardContainer>
+            {/* Arrow pointer */}
+            <div className="flex justify-center -mt-px">
+              <div className="w-3 h-3 bg-black/80 border-r border-b border-white/15 rotate-45 -translate-y-1.5" />
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* The 3D pin (always visible) */}
       <PinContainer
         title={recommendation.name}
         containerClassName="w-60 h-52"
         isActive={showDetail}
-        onPinClick={onSelect}
+        onPinClick={() => {
+          setClickedOpen((prev) => !prev);
+          onSelect?.();
+        }}
       >
         <div className="flex flex-col gap-2 p-2 tracking-tight w-[10rem]">
           <h3 className="max-w-xs font-bold text-sm text-white truncate">

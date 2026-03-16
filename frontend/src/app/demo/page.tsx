@@ -168,9 +168,9 @@ export default function DemoPage() {
       detail: "Pro + Flash + Native Audio",
     },
     {
-      value: "6+",
+      value: "7+",
       label: "Google APIs",
-      detail: "Places, Routes, Geocoding, 3D Tiles, Gemini, Search",
+      detail: "Places, Routes, Geocoding, 3D Tiles, Gemini, Search, Live API",
     },
     { value: "BIDI", label: "Audio Streaming", detail: "Real-time WebSocket" },
     { value: "<8s", label: "Pipeline Latency", detail: "3 agents, end-to-end" },
@@ -279,6 +279,10 @@ export default function DemoPage() {
     {
       name: "Google Search (ADK)",
       detail: "Grounding tool for ScriptWriterAgent",
+    },
+    {
+      name: "Gemini Live API",
+      detail: "Bidirectional audio streaming for real-time voice conversation",
     },
   ];
 
@@ -418,6 +422,7 @@ export default function DemoPage() {
           label: "Google Search (ADK)",
           url: "https://google.github.io/adk-docs/tools-custom/function-tools/",
         },
+        { label: "Gemini Live API" },
       ],
     },
   ];
@@ -1092,7 +1097,7 @@ export default function DemoPage() {
         <SectionHeading
           label="Google APIs"
           title="Platform Integration"
-          subtitle="6+ Google APIs powering location intelligence, 3D rendering, and AI reasoning."
+          subtitle="7+ Google APIs powering location intelligence, 3D rendering, and AI reasoning."
         />
 
         <FadeIn delay={0.1}>

@@ -9,6 +9,7 @@ import {
   getStoredLocation,
   DefaultLocation as LocSelectorDefault,
 } from "@/components/LocationSelector";
+import { ChevronLeft, ChevronRight } from "lucide-react";
 import VoiceAssistant from "@/components/VoiceAssistant";
 import TourProgressBar from "@/components/TourProgressBar";
 import GridScanLoader from "@/components/GridScanLoader";
@@ -299,6 +300,17 @@ export default function Home() {
     setRecenterTrigger();
   };
 
+  const handleGoHome = useCallback(() => {
+    setIsTransitioning(true);
+    setHasStarted(false);
+    // Allow one frame for the off-screen landing page to mount, then slide it in
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setIsTransitioning(false);
+      });
+    });
+  }, [setIsTransitioning, setHasStarted]);
+
   const handleClear = () => {
     clearSearch();
     setDroneIndex(-1);
@@ -514,6 +526,7 @@ export default function Home() {
                       className="rounded-full px-3 py-2 text-xs font-bold tracking-wider transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed text-purple-300 hover:bg-purple-500/30 hover:text-white"
                       title="Previous waypoint"
                     >
+                      <ChevronLeft className="w-3.5 h-3.5 inline-block mr-0.5" />
                       PREV
                     </button>
 
@@ -535,6 +548,7 @@ export default function Home() {
                       title="Next waypoint"
                     >
                       NEXT
+                      <ChevronRight className="w-3.5 h-3.5 inline-block ml-0.5" />
                     </button>
 
                     <div className="w-px h-6 bg-purple-400/30 mx-1" />
@@ -569,7 +583,7 @@ export default function Home() {
           <div className="pointer-events-auto shrink-0 flex flex-col space-y-5">
             <div className="px-2 pt-2 flex items-center space-x-2">
               <button
-                onClick={() => { setHasStarted(false); setIsTransitioning(false); }}
+                onClick={handleGoHome}
                 className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 flex items-center space-x-3 w-fit cursor-pointer hover:border-white/20 hover:bg-black/50 transition-all duration-300"
                 title="Back to home"
               >
@@ -584,7 +598,7 @@ export default function Home() {
                 </div>
               </button>
               <button
-                onClick={() => { setHasStarted(false); setIsTransitioning(false); }}
+                onClick={handleGoHome}
                 className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl p-3 flex items-center justify-center hover:border-white/20 hover:bg-black/50 transition-all duration-300 group"
                 title="Back to home"
               >
