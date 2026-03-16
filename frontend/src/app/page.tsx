@@ -69,6 +69,7 @@ export default function Home() {
   const droneWaypoints = useSimulationStore((s) => s.droneWaypoints);
   const activeDroneWaypoint = useSimulationStore((s) => s.activeDroneWaypoint);
   const isScanning = useSimulationStore((s) => s.isScanning);
+  const cinematicFlight = useSimulationStore((s) => s.cinematicFlight);
 
   // ── Zustand actions ─────────────────────────────────────────────────
   const setProfileData = useSimulationStore((s) => s.setProfileData);
@@ -422,6 +423,7 @@ export default function Home() {
           weatherState={weatherState}
           droneWaypoint={activeDroneWaypoint ?? undefined}
           activePOIName={activePOIName}
+          cinematicFlight={cinematicFlight}
         />
       </div>
 
@@ -566,12 +568,17 @@ export default function Home() {
           {/* Title and Search Header */}
           <div className="pointer-events-auto shrink-0 flex flex-col space-y-5">
             <div className="px-2 pt-2">
-              <h1 className="text-4xl font-extrabold text-white tracking-wider drop-shadow-xl mb-1">
-                POView
-              </h1>
-              <p className="text-white/70 text-sm font-medium tracking-wide drop-shadow-md">
-                Autonomous Urban Intelligence
-              </p>
+              <div className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 flex items-center space-x-3 w-fit">
+                <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-cyan-400 shrink-0"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
+                <div className="flex flex-col">
+                  <h1 className="text-2xl font-extrabold text-white tracking-wider drop-shadow-xl leading-none">
+                    POView
+                  </h1>
+                  <p className="text-white/50 text-xs font-medium tracking-wide drop-shadow-md">
+                    Autonomous Urban Intelligence
+                  </p>
+                </div>
+              </div>
             </div>
             <SearchBox
               onSearch={handleSearch}

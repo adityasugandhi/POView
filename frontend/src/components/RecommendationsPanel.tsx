@@ -49,7 +49,7 @@ export default function RecommendationsPanel({
         )}
         <div className="flex items-center justify-between">
           <h2 className="text-2xl font-bold text-white tracking-tight">
-            AI Targeting
+            Recommendations
           </h2>
           <p className="bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 px-3 py-1 rounded-full text-xs font-semibold tracking-wide flex items-center shadow-sm">
             {recommendations.length}{" "}
@@ -94,7 +94,7 @@ export default function RecommendationsPanel({
                 <div className="flex items-center space-x-1.5 text-white/50 group-hover:text-indigo-300 transition-colors duration-200">
                   <MapPin className="w-3.5 h-3.5" />
                   <span className="text-[11px] font-medium tracking-wide">
-                    Target Acquired
+                    View Location
                   </span>
                 </div>
               </div>

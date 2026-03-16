@@ -143,6 +143,7 @@ export default function VoiceAssistant({
       switch (tool) {
         case "fly_to_location":
           useSimulationStore.getState().setIsScanning(false);
+          if (d.place_name) lastFlyToPlaceRef.current = d.place_name as string;
           if (d.location) {
             onLocationUpdate?.(
               d.location as { lat: number; lng: number },
@@ -253,8 +254,38 @@ export default function VoiceAssistant({
           .then((r) => r.json())
           .then((data) => {
             const loc = data.results?.[0]?.geometry?.location;
-            const vp = data.results?.[0]?.geometry?.viewport;
-            if (loc) onLocationUpdate?.(loc, vp);
+            if (loc) {
+              const store = useSimulationStore.getState();
+              // Phase 1: High orbit
+              store.setCinematicFlight({
+                active: true,
+                phase: "high-orbit",
+                targetLat: loc.lat,
+                targetLng: loc.lng,
+              });
+              // Phase 2: Approach after 3s
+              setTimeout(() => {
+                useSimulationStore.getState().setCinematicFlight({
+                  active: true,
+                  phase: "approach",
+                  targetLat: loc.lat,
+                  targetLng: loc.lng,
+                });
+              }, 3000);
+              // Phase 3: Arrive after 6s total, then clear
+              setTimeout(() => {
+                useSimulationStore.getState().setCinematicFlight({
+                  active: true,
+                  phase: "arrive",
+                  targetLat: loc.lat,
+                  targetLng: loc.lng,
+                });
+                // Clear cinematic flight after arrival animation
+                setTimeout(() => {
+                  useSimulationStore.getState().setCinematicFlight(null);
+                }, 3000);
+              }, 6000);
+            }
           })
           .catch(() => {}); // silent fail — tool_result will handle it
       } else if (tool === "search_neighborhood" || tool === "get_recommendations") {
@@ -265,10 +296,13 @@ export default function VoiceAssistant({
   );
 
   // --- WebSocket hook ---
+  const lastFlyToPlaceRef = useRef<string | null>(null);
+
   const {
     connect,
     disconnect,
     sendAudio,
+    sendText,
     sendCameraContext,
     sendTourProgress,
     sendTourLifecycle,
@@ -358,6 +392,20 @@ export default function VoiceAssistant({
         setVoiceState("listening");
         setPanelVisible(true);
         if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+        useSimulationStore.getState().setIsVoiceSessionActive(true);
+
+        // Auto-greeting with current location context
+        const storeState = useSimulationStore.getState();
+        const loc = storeState.location || storeState.defaultLocation;
+        if (loc) {
+          fetch(`/api/reverse_geocode?lat=${loc.lat}&lng=${loc.lng}`)
+            .then((r) => r.json())
+            .then((data) => {
+              const neighborhood = data.neighborhood || data.formatted_address || "this area";
+              sendText(`<LOCATION_CONTEXT>User is viewing ${neighborhood}. Greet them naturally referencing this location.</LOCATION_CONTEXT>`);
+            })
+            .catch(() => {}); // silent fail — greeting is best-effort
+        }
       } catch (err) {
         console.error("[Voice] toggle failed:", err);
         stopMic();
@@ -371,6 +419,7 @@ export default function VoiceAssistant({
       stopFlightCaptures();
       disconnect();
       setVoiceState("idle");
+      useSimulationStore.getState().setIsVoiceSessionActive(false);
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
       fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 8000);
     }
@@ -390,6 +439,13 @@ export default function VoiceAssistant({
       transcriptEndRef.current.scrollIntoView({ behavior: "smooth" });
     }
   }, [transcript, panelVisible]);
+
+  // --- Analyze Now handler ---
+  const handleAnalyzeNow = useCallback(() => {
+    const place = lastFlyToPlaceRef.current;
+    if (!place || !isConnected) return;
+    sendText(`Analyze ${place} neighborhood in detail`);
+  }, [isConnected, sendText]);
 
   // --- Button style by state ---
   const buttonStyle = {
@@ -426,22 +482,33 @@ export default function VoiceAssistant({
             ))}
             <div ref={transcriptEndRef} />
           </div>
-          {/* State indicator dot */}
-          <div className="mt-4 pt-3 border-t border-white/10 flex items-center space-x-2 shrink-0">
-            <span
-              className={`w-2 h-2 rounded-full ${
-                voiceState === "idle"
-                  ? "bg-white/20"
-                  : voiceState === "listening"
-                    ? "bg-cyan-400 animate-pulse"
-                    : voiceState === "processing"
-                      ? "bg-purple-400 animate-pulse"
-                      : "bg-green-400 animate-pulse"
-              }`}
-            />
-            <span className="text-xs text-white/40 tracking-widest uppercase font-bold">
-              {voiceState}
-            </span>
+          {/* State indicator + Analyze Now */}
+          <div className="mt-4 pt-3 border-t border-white/10 flex items-center justify-between shrink-0">
+            <div className="flex items-center space-x-2">
+              <span
+                className={`w-2 h-2 rounded-full ${
+                  voiceState === "idle"
+                    ? "bg-white/20"
+                    : voiceState === "listening"
+                      ? "bg-cyan-400 animate-pulse"
+                      : voiceState === "processing"
+                        ? "bg-purple-400 animate-pulse"
+                        : "bg-green-400 animate-pulse"
+                }`}
+              />
+              <span className="text-xs text-white/40 tracking-widest uppercase font-bold">
+                {voiceState}
+              </span>
+            </div>
+            {lastFlyToPlaceRef.current && isConnected && (
+              <button
+                onClick={handleAnalyzeNow}
+                disabled={voiceState === "processing"}
+                className="bg-cyan-500/20 hover:bg-cyan-500/30 border border-cyan-400/40 backdrop-blur-xl rounded-full px-3 py-1.5 text-[11px] font-bold text-cyan-300 tracking-wider uppercase transition-all duration-200 disabled:opacity-40 disabled:cursor-not-allowed"
+              >
+                Analyze Now
+              </button>
+            )}
           </div>
         </div>
       )}

@@ -1,49 +1,46 @@
-# GroundLevel (God's Eye)
+# POView
 **Autonomous Urban Intelligence & Spatial Telemetry**
 
-GroundLevel is a next-generation analytical platform that merges a highly immersive 3D geospatial engine with deterministic, context-aware AI. By aggregating telemetry from across the Google Maps Platform and dynamically simulating current weather conditions, GroundLevel allows users to effortlessly discover "vibe-matched" physical locations based on contextual intent.
+POView is a next-generation analytical platform that merges an immersive 3D geospatial engine with a conversational AI voice assistant. Built on Google's Gemini Live API and the Agent Development Kit (ADK), POView enables users to explore neighborhoods through cinematic drone flyovers, natural voice dialogue, and real-time AI-powered neighborhood profiling.
 
 ## Key Features
-* **Hyper-Local Contextual Intent Search:** Users describe what they want to do (e.g., "drinking dark roast coffee while reading a book") and the AI translates the intent to locate the most relevant physical spaces nearby.
-* **Forecast-Aware AI Profiling:** Real-time Google WeatherForecast integration directly feeds the Gemini AI engine, ensuring all location recommendations (Atmosphere, Best For, Not Ideal For) forcefully reflect the current reality (e.g., clear skies vs. heavy rain).
-* **Cinematic 3D Globe:** Built on CesiumJS and Google 3D Photorealistic Tiles, the UI features dynamic camera positioning, automatic flyovers, and interactive neighborhood anchors.
-* **Reactive Weather Environments:** The 3D globe's atmosphere automatically adjusts lighting, desaturation, and fog thickness to mirror real-time weather conditions.
-* **Interactive UI/UX:** A sleek, glassmorphism-styled dashboard containing a live Weather Pane, automatic routing paths to target locations, and floating insight overlays.
 
-## System Architecture
+* **Voice-Powered Exploration:** A real-time voice assistant (Gemini Live API over WebSocket) lets users discover neighborhoods through natural conversation. Ask about a place and POView flies you there with cinematic camera work.
+* **Cinematic Drone Flyovers:** Three-phase camera sequences — high orbit, sweeping approach, and street-level arrival — create an immersive exploration experience for every location.
+* **Narrated Tours:** AI-generated guided tours with synchronized camera movements, narration timelines, and contextual commentary about each point of interest.
+* **Neighborhood Analysis & AI Profiling:** Deep contextual analysis of any neighborhood including vibe descriptions, demographics, safety scores, and location-specific recommendations powered by Gemini.
+* **Real-Time Weather-Reactive 3D Environment:** Built on CesiumJS with Google 3D Photorealistic Tiles, the globe dynamically adjusts fog, atmosphere, and lighting based on live weather conditions.
+* **Contextual Recommendations:** AI-driven location matching based on user intent — describe what you want to do and POView finds the best matching spots nearby.
+* **Interactive Glassmorphic UI:** A sleek dashboard with floating insight panels, transcript overlays, tour progress controls, and recommendation cards.
 
-- **Frontend:** Next.js (React), TailwindCSS, Resium (CesiumJS), Axios.
-- **Backend:** Python FastAPI, Pydantic, Uvicorn.
-- **Data & Orhcestration:** Redis Cache.
+## Tech Stack
 
-### Third-Party APIs used
-*   **Google Places API (New):** For searching coordinates, text queries, reviews, and extensive place metadata.
-*   **Google Routes API v2:** Computes the pedestrian walking paths between an anchor point and recommendations.
-*   **Google Maps 3D Tiles API:** Renders the photorealistic global geometry.
-*   **Google Gemini 3.1 Pro via GenAI SDK:** Handles intent parsing and constructs the complex JSON `NeighborhoodProfile`.
-*   **Open-Meteo API:** Used as a real-time proxy for the predictive capabilities of Google WeatherForecast 2.
+- **Frontend:** Next.js 16, React 19, TypeScript, Tailwind CSS v4, Resium (CesiumJS)
+- **Backend:** Python FastAPI, Google ADK (Agent Development Kit), Pydantic
+- **AI/Voice:** Google Gemini Live API, WebSocket real-time audio streaming
+- **3D Engine:** CesiumJS with Google Maps 3D Photorealistic Tiles
+- **State Management:** Zustand (reactive + transient partitions)
+- **APIs:** Google Places API, Google Routes API v2, Google Geocoding API, Open-Meteo Weather API
 
-### Flow of Data
-1.  **Proximity Masking:** The UI requests a search (`/api/proximity_search`). The Backend uses Gemini to map the human intent ("reading") into API keywords ("cafe, library") and searches Google Places nearby.
-2.  **Routing Visualization:** For each match, the backend requests the walking path from Google Routes API v2, returning encoded `routingPath` polylines.
-3.  **Spatial Profiling & Weather Context:** The UI simultaneously requests (`/api/profile/{place_id}`). The API checks Redis. On a miss, it fetches location metadata, deeply inspects surrounding infrastructure, and pulls live weather data.
-4.  **Deterministic AI Generation:** The backend injects the live weather (e.g., "Steady rain at 48°F") and all spatial data into a strict prompt. Gemini generates the `NeighborhoodProfile` returning it to the UI in strict JSON.
-5.  **Reactive Rendering:** The React UI parses the response. The Cesium `Map3D` component manipulates `scene.skyAtmosphere` and `scene.fog` based on the weather state, dropping interactive anchors on the matched locations.
+### Architecture
+
+1. **Voice Session:** User speaks → audio streams via WebSocket → Gemini Live API processes intent → triggers tools (fly_to_location, search_neighborhood, get_recommendations)
+2. **Cinematic Flight:** Tool calls trigger a 3-phase camera sequence (high-orbit → approach → street-level arrive) on the CesiumJS globe
+3. **Spatial Profiling:** Backend aggregates Google Places data, weather context, and spatial analysis → Gemini generates structured NeighborhoodProfile JSON
+4. **Reactive Rendering:** Frontend receives tool results → updates Zustand store → CesiumJS camera flies, weather effects adjust, UI panels populate
 
 ## Quick Start
 
 ### Prerequisites
 - Node.js (v18+)
-- Python 3.9+
-- Redis Server ( running on `localhost:6379`)
-- API Keys defined in `backend/.env` (`GOOGLE_MAPS_API_KEY`, `GEMINI_API_KEY`, `NEXT_PUBLIC_CESIUM_ION_TOKEN` in frontend).
+- Python 3.11+
+- Redis Server (running on `localhost:6379`)
+- API Keys: `GOOGLE_MAPS_API_KEY`, `GEMINI_API_KEY` in `backend/.env`; `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY`, `NEXT_PUBLIC_CESIUM_ION_TOKEN` in `frontend/.env.local`
 
 ### Run the Backend
 ```bash
 cd backend
-source venv/bin/activate
-pip install -r requirements.txt
-uvicorn main:app --host 0.0.0.0 --port 8000 --reload
+uv run python -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
 ### Run the Frontend
@@ -52,5 +49,5 @@ cd frontend
 npm install
 npm run dev
 ```
-Open `http://localhost:3000` to begin.
-# POView
+
+Open `http://localhost:3000` to begin. Click the voice button to start a conversation, or use the search box for manual exploration.
