@@ -66,6 +66,14 @@ export interface SimulationState {
   // Scanning state (GridScanLoader during fly_to_location)
   isScanning: boolean;
 
+  // Cinematic flight state
+  cinematicFlight: {
+    active: boolean;
+    phase: "high-orbit" | "approach" | "arrive" | "idle";
+    targetLat: number;
+    targetLng: number;
+  } | null;
+
   // Legacy drone waypoints (kept for backward-compat, replaced by tour engine)
   droneWaypoints: CameraWaypoint[];
   activeDroneWaypoint: CameraWaypoint | null;
@@ -106,6 +114,7 @@ export interface SimulationState {
   setIsVoiceSessionActive: (active: boolean) => void;
   setTourStatus: (status: TourStatus) => void;
   setIsScanning: (scanning: boolean) => void;
+  setCinematicFlight: (flight: SimulationState["cinematicFlight"]) => void;
   setLiveApiConnectionStatus: (
     status: SimulationState["liveApiConnectionStatus"],
   ) => void;
@@ -172,6 +181,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   tourStatus: "idle",
 
   isScanning: false,
+  cinematicFlight: null,
   hasStarted: false,
   isTransitioning: false,
   defaultLocation: null,
@@ -219,6 +229,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     set({ isTransitioning: transitioning }),
   setDefaultLocation: (loc) => set({ defaultLocation: loc }),
   setIsScanning: (scanning) => set({ isScanning: scanning }),
+  setCinematicFlight: (flight) => set({ cinematicFlight: flight }),
   setIsVoiceSessionActive: (active) => set({ isVoiceSessionActive: active }),
   setTourStatus: (status) => set({ tourStatus: status }),
   setLiveApiConnectionStatus: (status) =>

@@ -64,6 +64,14 @@ export default function SearchBox({
     return () => cancelAnimationFrame(id);
   }, [isScanning]);
 
+  // Auto-collapse when voice session starts
+  const isVoiceSessionActive = useSimulationStore((s) => s.isVoiceSessionActive);
+  useEffect(() => {
+    if (!isVoiceSessionActive) return;
+    const id = requestAnimationFrame(() => setCollapsed(true));
+    return () => cancelAnimationFrame(id);
+  }, [isVoiceSessionActive]);
+
   const fetchSuggestions = async (query: string) => {
     try {
       const res = await fetch(

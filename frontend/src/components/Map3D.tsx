@@ -17,6 +17,13 @@ import {
 } from "@/lib/spatialPerceptionEngine";
 import type { CameraWaypoint, Recommendation } from "@/types/simulation";
 
+interface CinematicFlight {
+  active: boolean;
+  phase: "high-orbit" | "approach" | "arrive" | "idle";
+  targetLat: number;
+  targetLng: number;
+}
+
 interface Map3DProps {
   viewport?: {
     low: { latitude: number; longitude: number };
@@ -31,6 +38,7 @@ interface Map3DProps {
   weatherState?: string;
   droneWaypoint?: CameraWaypoint;
   activePOIName?: string;
+  cinematicFlight?: CinematicFlight | null;
 }
 
 // WeatherEffects manages dynamic Cesium environment based on Google WeatherForecast 2 context
@@ -86,6 +94,7 @@ export default function Map3D({
   weatherState = "clear",
   droneWaypoint,
   activePOIName,
+  cinematicFlight,
 }: Map3DProps) {
   const GOOGLE_TILE_URL = `https://tile.googleapis.com/v1/3dtiles/root.json?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`;
   const viewerInitialized = useRef(false);
@@ -104,7 +113,43 @@ export default function Map3D({
   }, []);
 
   const cameraConfig = useMemo(() => {
-    // Highest priority: Drone waypoint (active drone tour)
+    // Highest priority: Cinematic flight sequence
+    if (cinematicFlight?.active) {
+      const { phase, targetLat, targetLng } = cinematicFlight;
+      if (phase === "high-orbit") {
+        return {
+          destination: Cartesian3.fromDegrees(targetLng, targetLat + 0.008, 800),
+          orientation: {
+            heading: CesiumMath.toRadians(30),
+            pitch: CesiumMath.toRadians(-45),
+            roll: 0,
+          },
+          duration: 3,
+        };
+      } else if (phase === "approach") {
+        return {
+          destination: Cartesian3.fromDegrees(targetLng + 0.003, targetLat - 0.002, 300),
+          orientation: {
+            heading: CesiumMath.toRadians(150),
+            pitch: CesiumMath.toRadians(-30),
+            roll: 0,
+          },
+          duration: 3,
+        };
+      } else if (phase === "arrive") {
+        return {
+          destination: Cartesian3.fromDegrees(targetLng, targetLat - 0.001, 40),
+          orientation: {
+            heading: 0,
+            pitch: CesiumMath.toRadians(-15),
+            roll: 0,
+          },
+          duration: 3,
+        };
+      }
+    }
+
+    // Drone waypoint (active drone tour)
     if (droneWaypoint) {
       return {
         destination: Cartesian3.fromDegrees(
@@ -214,6 +259,7 @@ export default function Map3D({
     selectedRecommendation,
     recenterTrigger,
     droneWaypoint,
+    cinematicFlight,
   ]);
 
   // Generate a robust key to force CameraFlyTo to re-trigger when targets change
