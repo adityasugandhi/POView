@@ -38,6 +38,7 @@ export interface TourOrchestratorCallbacks {
     event: "tour_start" | "tour_pause" | "tour_resume" | "tour_stop",
     extra?: { opening_narration?: string },
   ) => void;
+  sendScreenCapture: (blob: Blob) => void;
 }
 
 // --- Module state ---
@@ -45,6 +46,7 @@ export interface TourOrchestratorCallbacks {
 let _callbacks: TourOrchestratorCallbacks | null = null;
 let _spline: TrajectorySpline | null = null;
 let _segmentCheckInterval: ReturnType<typeof setInterval> | null = null;
+let _screenCaptureInterval: ReturnType<typeof setInterval> | null = null;
 let _lastSegmentIndex = -1;
 
 /**
@@ -103,6 +105,18 @@ export function startTour(
 
   // 5. Start camera sync
   startCameraSync(viewer, _spline);
+
+  // 5b. Screen capture for visual awareness (every 3s, low quality to reduce bandwidth)
+  _screenCaptureInterval = setInterval(() => {
+    const canvas = (viewer.scene as unknown as { canvas: HTMLCanvasElement }).canvas;
+    canvas.toBlob(
+      (blob: Blob | null) => {
+        if (blob) _callbacks?.sendScreenCapture(blob);
+      },
+      "image/jpeg",
+      0.4,
+    );
+  }, 3000);
 
   // 6. Set tour status to opening
   store.setTourStatus("opening");
@@ -166,6 +180,12 @@ export function stopTour(): void {
   if (_segmentCheckInterval) {
     clearInterval(_segmentCheckInterval);
     _segmentCheckInterval = null;
+  }
+
+  // Clear screen capture
+  if (_screenCaptureInterval) {
+    clearInterval(_screenCaptureInterval);
+    _screenCaptureInterval = null;
   }
 
   // Stop sync systems

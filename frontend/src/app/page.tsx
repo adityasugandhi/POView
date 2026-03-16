@@ -11,6 +11,7 @@ import {
 } from "@/components/LocationSelector";
 import VoiceAssistant from "@/components/VoiceAssistant";
 import TourProgressBar from "@/components/TourProgressBar";
+import GridScanLoader from "@/components/GridScanLoader";
 import { useSimulationStore } from "@/store/useSimulationStore";
 import { useTourPlayback } from "@/hooks/useTourPlayback";
 import {
@@ -67,6 +68,7 @@ export default function Home() {
   const weatherState = useSimulationStore((s) => s.weatherState);
   const droneWaypoints = useSimulationStore((s) => s.droneWaypoints);
   const activeDroneWaypoint = useSimulationStore((s) => s.activeDroneWaypoint);
+  const isScanning = useSimulationStore((s) => s.isScanning);
 
   // ── Zustand actions ─────────────────────────────────────────────────
   const setProfileData = useSimulationStore((s) => s.setProfileData);
@@ -130,6 +132,12 @@ export default function Home() {
     (...args: unknown[]) =>
       (
         wsCallbacks.current.sendTourLifecycle as
+          | ((...a: unknown[]) => void)
+          | undefined
+      )?.(...args),
+    (...args: unknown[]) =>
+      (
+        wsCallbacks.current.sendScreenCapture as
           | ((...a: unknown[]) => void)
           | undefined
       )?.(...args),
@@ -581,11 +589,11 @@ export default function Home() {
 
           {/* Floating Insight Panel */}
           <div className="pointer-events-auto flex-1 overflow-hidden h-0 rounded-3xl">
-            {loading ? (
+            {loading || isScanning ? (
               <div className="p-8 text-center text-white/50 h-full flex flex-col items-center justify-center bg-black/40 backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-3xl">
                 <div className="w-12 h-12 border-4 border-white/10 border-t-cyan-400 rounded-full animate-spin mb-6 shadow-[0_0_15px_rgba(34,211,238,0.5)]"></div>
-                <p className="tracking-widest uppercase text-xs font-semibold text-cyan-300/80">
-                  Aggregating Telemetry...
+                <p className="tracking-widest uppercase text-xs font-semibold text-cyan-300/80 animate-pulse">
+                  {isScanning ? "Locking Target Vector..." : "Aggregating Telemetry..."}
                 </p>
               </div>
             ) : (
@@ -598,8 +606,12 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Right Floating Recommendations Panel */}
-        {recommendationsData && recommendationsData.length > 0 && (
+        {/* Right Floating Recommendations Panel / Scan Loader */}
+        {isScanning ? (
+          <div className="absolute inset-y-6 right-6 w-[400px] z-10 hidden lg:flex flex-col">
+            <GridScanLoader />
+          </div>
+        ) : recommendationsData && recommendationsData.length > 0 ? (
           <div className="absolute inset-y-6 right-6 w-[400px] z-10 hidden lg:flex flex-col">
             <RecommendationsPanel
               recommendations={recommendationsData}
@@ -609,7 +621,7 @@ export default function Home() {
               profileData={profileData ?? undefined}
             />
           </div>
-        )}
+        ) : null}
       </div>
 
       {/* Tour Progress Bar (visible only during active tours) */}
@@ -639,6 +651,14 @@ export default function Home() {
           }}
           onDroneTourStart={handleDroneTour}
           onNarratedTourResult={handleNarratedTourResult}
+          onLocationUpdate={(loc, vp) => {
+            setLocation({ lat: loc.lat, lng: loc.lng });
+            if (vp) setViewport(vp as Viewport);
+            if (!hasStarted) {
+              setIsTransitioning(true);
+              setTimeout(() => setHasStarted(true), 1000);
+            }
+          }}
           onWebSocketReady={handleWebSocketReady}
         />
       </div>

@@ -5,6 +5,7 @@ import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useLiveWebSocket, TranscriptLine } from "@/hooks/useLiveWebSocket";
 import { unlockSharedAudioContext } from "@/lib/sharedAudioContext";
+import { useSimulationStore } from "@/store/useSimulationStore";
 
 import type {
   NeighborhoodProfile,
@@ -18,6 +19,7 @@ export interface VoiceAssistantProps {
   onDroneWaypoints?: (waypoints: CameraWaypoint[]) => void;
   onDroneTourStart?: () => void;
   onNarratedTourResult?: (data: Record<string, unknown>) => void;
+  onLocationUpdate?: (location: { lat: number; lng: number }, viewport?: unknown) => void;
   onWebSocketReady?: (methods: {
     sendTourProgress: (payload: {
       segment_id: number;
@@ -45,6 +47,7 @@ export interface VoiceAssistantProps {
         north: number;
       };
     }) => void;
+    sendScreenCapture: (blob: Blob) => void;
   }) => void;
 }
 
@@ -56,6 +59,7 @@ export default function VoiceAssistant({
   onDroneWaypoints,
   onDroneTourStart,
   onNarratedTourResult,
+  onLocationUpdate,
   onWebSocketReady,
 }: VoiceAssistantProps) {
   const [voiceState, setVoiceState] = useState<VoiceState>("idle");
@@ -63,6 +67,7 @@ export default function VoiceAssistant({
   const [panelVisible, setPanelVisible] = useState(false);
   const fadeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
+  const flightCaptureRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   // --- Audio player ---
   const {
@@ -70,6 +75,40 @@ export default function VoiceAssistant({
     stop: stopPlayback,
     isPlaying,
   } = useAudioPlayer();
+
+  // --- Flight screen capture helpers ---
+  const sendScreenCaptureRef = useRef<((blob: Blob) => void) | null>(null);
+  const sendCameraContextRef = useRef<((payload: {
+    lat: number; lng: number; alt: number; heading: number; pitch: number;
+    visible_pois: Array<{ name: string; type: string; rating: number }>;
+    bounding_box: { west: number; south: number; east: number; north: number };
+  }) => void) | null>(null);
+
+  const stopFlightCaptures = useCallback(() => {
+    if (flightCaptureRef.current) {
+      clearInterval(flightCaptureRef.current);
+      flightCaptureRef.current = null;
+    }
+  }, []);
+
+  const startFlightCaptures = useCallback(() => {
+    stopFlightCaptures();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any -- Cesium viewer is attached to window at runtime
+    const viewer = (window as any).cesiumViewer as { scene?: { canvas?: HTMLCanvasElement } } | undefined;
+    if (!viewer?.scene?.canvas) return;
+    const canvas = viewer.scene.canvas;
+    flightCaptureRef.current = setInterval(() => {
+      canvas.toBlob(
+        (blob: Blob | null) => {
+          if (blob && sendScreenCaptureRef.current) {
+            sendScreenCaptureRef.current(blob);
+          }
+        },
+        "image/jpeg",
+        0.4,
+      );
+    }, 1000);
+  }, [stopFlightCaptures]);
 
   // --- WebSocket callbacks (stable refs) ---
   const handleAudio = useCallback(
@@ -81,7 +120,18 @@ export default function VoiceAssistant({
   );
 
   const handleTranscript = useCallback((line: TranscriptLine) => {
-    setTranscript((prev) => [...prev, line]);
+    // Only show agent lines once the full sentence is complete
+    if (line.role === "agent" && !line.finished) return;
+
+    setTranscript((prev) => {
+      const lastIdx = prev.findLastIndex((l) => l.role === line.role);
+      if (lastIdx !== -1 && !prev[lastIdx].finished) {
+        const updated = [...prev];
+        updated[lastIdx] = line;
+        return updated;
+      }
+      return [...prev, line];
+    });
     setPanelVisible(true);
     if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
   }, []);
@@ -91,11 +141,51 @@ export default function VoiceAssistant({
       const d = data as Record<string, unknown> | null;
       if (!d) return;
       switch (tool) {
+        case "fly_to_location":
+          useSimulationStore.getState().setIsScanning(false);
+          if (d.location) {
+            onLocationUpdate?.(
+              d.location as { lat: number; lng: number },
+              d.viewport,
+            );
+          }
+          if (d.recommendations) {
+            onRecommendations?.(d.recommendations as Recommendation[]);
+          }
+          // Stop flight captures after camera arrives (3s flight + 500ms buffer)
+          setTimeout(() => {
+            stopFlightCaptures();
+            // Send final camera context so agent knows camera has landed
+            const telemetry = useSimulationStore.getState().cameraTelemetry;
+            if (telemetry && sendCameraContextRef.current) {
+              sendCameraContextRef.current({
+                lat: telemetry.lat,
+                lng: telemetry.lng,
+                alt: telemetry.alt,
+                heading: telemetry.heading,
+                pitch: telemetry.pitch,
+                visible_pois: useSimulationStore.getState().visiblePOIs.map((p) => ({
+                  name: p.name,
+                  type: p.type || "",
+                  rating: p.rating || 0,
+                })),
+                bounding_box: telemetry.viewRectangle || { west: 0, south: 0, east: 0, north: 0 },
+              });
+            }
+          }, 3500);
+          break;
         case "search_neighborhood":
+          useSimulationStore.getState().setIsScanning(false);
           if (d.profile && d.place_id) {
             onProfileData?.(
               d.profile as NeighborhoodProfile,
               d.place_id as string,
+            );
+          }
+          if (d.location) {
+            onLocationUpdate?.(
+              d.location as { lat: number; lng: number },
+              d.viewport,
             );
           }
           if (
@@ -109,6 +199,7 @@ export default function VoiceAssistant({
           }
           break;
         case "get_recommendations":
+          useSimulationStore.getState().setIsScanning(false);
           if (d.recommendations) {
             onRecommendations?.(d.recommendations as Recommendation[]);
           }
@@ -119,6 +210,12 @@ export default function VoiceAssistant({
         case "start_narrated_tour":
           onNarratedTourResult?.(d);
           break;
+        case "tour_recommendations":
+          if (d.recommendations) {
+            onRecommendations?.(d.recommendations as Recommendation[]);
+          }
+          onNarratedTourResult?.(d);
+          break;
       }
     },
     [
@@ -127,6 +224,8 @@ export default function VoiceAssistant({
       onRecommendations,
       onDroneTourStart,
       onNarratedTourResult,
+      onLocationUpdate,
+      stopFlightCaptures,
     ],
   );
 
@@ -139,6 +238,32 @@ export default function VoiceAssistant({
     setVoiceState("idle");
   }, []);
 
+  // --- Pre-fly geocoding on function_call ---
+  const setIsScanning = useSimulationStore((s) => s.setIsScanning);
+
+  const handleToolCall = useCallback(
+    (tool: string, args: Record<string, unknown>) => {
+      if (tool === "fly_to_location" && args.place_query) {
+        setIsScanning(true);
+        startFlightCaptures();
+        const query = args.place_query as string;
+        fetch(
+          `https://maps.googleapis.com/maps/api/geocode/json?address=${encodeURIComponent(query)}&key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`,
+        )
+          .then((r) => r.json())
+          .then((data) => {
+            const loc = data.results?.[0]?.geometry?.location;
+            const vp = data.results?.[0]?.geometry?.viewport;
+            if (loc) onLocationUpdate?.(loc, vp);
+          })
+          .catch(() => {}); // silent fail — tool_result will handle it
+      } else if (tool === "search_neighborhood" || tool === "get_recommendations") {
+        setIsScanning(true);
+      }
+    },
+    [onLocationUpdate, setIsScanning, startFlightCaptures],
+  );
+
   // --- WebSocket hook ---
   const {
     connect,
@@ -147,6 +272,7 @@ export default function VoiceAssistant({
     sendCameraContext,
     sendTourProgress,
     sendTourLifecycle,
+    sendScreenCapture,
     isConnected,
   } = useLiveWebSocket({
     onAudio: handleAudio,
@@ -154,7 +280,14 @@ export default function VoiceAssistant({
     onToolResult: handleToolResult,
     onStateChange: handleStateChange,
     onError: handleError,
+    onToolCall: handleToolCall,
   });
+
+  // Keep refs in sync for use inside callbacks
+  useEffect(() => {
+    sendScreenCaptureRef.current = sendScreenCapture;
+    sendCameraContextRef.current = sendCameraContext;
+  }, [sendScreenCapture, sendCameraContext]);
 
   // Expose WebSocket methods for tour orchestrator
   const wsMethodsExposed = React.useRef(false);
@@ -165,6 +298,7 @@ export default function VoiceAssistant({
         sendTourProgress,
         sendTourLifecycle,
         sendCameraContext,
+        sendScreenCapture,
       });
     }
     if (!isConnected) {
@@ -175,6 +309,7 @@ export default function VoiceAssistant({
     sendTourProgress,
     sendTourLifecycle,
     sendCameraContext,
+    sendScreenCapture,
     onWebSocketReady,
   ]);
 
@@ -233,19 +368,21 @@ export default function VoiceAssistant({
       // Disconnect everything
       stopMic();
       stopPlayback();
+      stopFlightCaptures();
       disconnect();
       setVoiceState("idle");
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
       fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 8000);
     }
-  }, [isConnected, connect, startMic, stopMic, stopPlayback, disconnect]);
+  }, [isConnected, connect, startMic, stopMic, stopPlayback, stopFlightCaptures, disconnect]);
 
   // Cleanup on unmount
   useEffect(() => {
     return () => {
       if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+      stopFlightCaptures();
     };
-  }, []);
+  }, [stopFlightCaptures]);
 
   // Auto-scroll transcript
   useEffect(() => {
@@ -273,7 +410,9 @@ export default function VoiceAssistant({
             {transcript.map((line, i) => (
               <p
                 key={i}
-                className={`text-sm leading-relaxed ${
+                className={`text-sm leading-relaxed transition-opacity duration-300 ${
+                  line.finished ? "opacity-100" : "opacity-60"
+                } ${
                   line.role === "user"
                     ? "text-white/60 font-medium"
                     : "text-white font-semibold"

@@ -4,6 +4,16 @@ from typing import List, Dict, Any
 
 API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "YOUR_API_KEY_HERE")
 
+# Module-level persistent HTTP client for connection reuse
+_http_client: httpx.AsyncClient | None = None
+
+
+def _get_client() -> httpx.AsyncClient:
+    global _http_client
+    if _http_client is None:
+        _http_client = httpx.AsyncClient(timeout=10.0)
+    return _http_client
+
 
 def _build_photo_url(photo_name: str) -> str:
     """Build a Google Places photo URL from the photo resource name."""
@@ -18,15 +28,15 @@ async def get_autocomplete_predictions(input_text: str) -> List[Dict[str, Any]]:
     }
     payload = {"input": input_text}
     
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            return data.get("suggestions", [])
-        except Exception as e:
-            print(f"Error fetching autocomplete: {e}")
-            return []
+    client = _get_client()
+    try:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+        return data.get("suggestions", [])
+    except Exception as e:
+        print(f"Error fetching autocomplete: {e}")
+        return []
 
 async def get_places_details(place_id: str) -> Dict[str, Any]:
     """Retrieve details for a specific Google Place ID using Places API (New)."""
@@ -38,26 +48,26 @@ async def get_places_details(place_id: str) -> Dict[str, Any]:
         "X-Goog-FieldMask": "displayName,location,viewport,formattedAddress,types"
     }
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, headers=headers)
-            response.raise_for_status()
-            data = response.json()
-            return {
-                "name": data.get("displayName", {}).get("text", ""),
-                "geometry": {
-                    "location": {
-                        "lat": data.get("location", {}).get("latitude"),
-                        "lng": data.get("location", {}).get("longitude")
-                    },
-                    "viewport": data.get("viewport")
+    client = _get_client()
+    try:
+        response = await client.get(url, headers=headers)
+        response.raise_for_status()
+        data = response.json()
+        return {
+            "name": data.get("displayName", {}).get("text", ""),
+            "geometry": {
+                "location": {
+                    "lat": data.get("location", {}).get("latitude"),
+                    "lng": data.get("location", {}).get("longitude")
                 },
-                "formatted_address": data.get("formattedAddress", ""),
-                "type": data.get("types", [""])[0] if data.get("types") else ""
-            }
-        except Exception as e:
-            print(f"Error fetching place details: {e}")
-            return {}
+                "viewport": data.get("viewport")
+            },
+            "formatted_address": data.get("formattedAddress", ""),
+            "type": data.get("types", [""])[0] if data.get("types") else ""
+        }
+    except Exception as e:
+        print(f"Error fetching place details: {e}")
+        return {}
 
 async def get_nearby_places(lat: float, lng: float, radius: float = 1000.0) -> List[Dict[str, Any]]:
     """Retrieve an array of points of interest around the coordinates using Places API (New)."""
@@ -80,14 +90,14 @@ async def get_nearby_places(lat: float, lng: float, radius: float = 1000.0) -> L
         }
     }
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            places_result = response.json()
-        except Exception as e:
-            print(f"Error fetching nearby places: {e}")
-            return []
+    client = _get_client()
+    try:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        places_result = response.json()
+    except Exception as e:
+        print(f"Error fetching nearby places: {e}")
+        return []
     
     results = places_result.get("places", [])
     
@@ -176,14 +186,14 @@ async def contextual_places_search(lat: float, lng: float, radius_miles: float, 
         "maxResultCount": 5
     }
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            places_result = response.json()
-        except Exception as e:
-            print(f"Error fetching contextual places: {e}"); print(getattr(e, "response", type("obj", (object,), {"text": ""})).text)
-            return {}
+    client = _get_client()
+    try:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        places_result = response.json()
+    except Exception as e:
+        print(f"Error fetching contextual places: {e}"); print(getattr(e, "response", type("obj", (object,), {"text": ""})).text)
+        return {}
             
     results = places_result.get("places", [])
     if not results:
@@ -236,29 +246,29 @@ async def reverse_geocode(lat: float, lng: float) -> dict:
         "key": API_KEY,
     }
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.get(url, params=params)
-            response.raise_for_status()
-            data = response.json()
-            results = data.get("results", [])
-            if not results:
-                return {}
-
-            # Prefer locality-level results for cleaner display names,
-            # fall back to whatever Google returns first (most specific)
-            preferred_types = ("locality", "neighborhood", "sublocality")
-            best = next(
-                (r for r in results if any(t in r.get("types", []) for t in preferred_types)),
-                results[0],
-            )
-            return {
-                "place_id": best.get("place_id", ""),
-                "formatted_address": best.get("formatted_address", ""),
-            }
-        except Exception as e:
-            print(f"Error reverse geocoding: {e}")
+    client = _get_client()
+    try:
+        response = await client.get(url, params=params)
+        response.raise_for_status()
+        data = response.json()
+        results = data.get("results", [])
+        if not results:
             return {}
+
+        # Prefer locality-level results for cleaner display names,
+        # fall back to whatever Google returns first (most specific)
+        preferred_types = ("locality", "neighborhood", "sublocality")
+        best = next(
+            (r for r in results if any(t in r.get("types", []) for t in preferred_types)),
+            results[0],
+        )
+        return {
+            "place_id": best.get("place_id", ""),
+            "formatted_address": best.get("formatted_address", ""),
+        }
+    except Exception as e:
+        print(f"Error reverse geocoding: {e}")
+        return {}
 
 
 async def get_directions(origin_lat: float, origin_lng: float, dest_lat: float, dest_lng: float) -> str:
@@ -291,19 +301,19 @@ async def get_directions(origin_lat: float, origin_lng: float, dest_lat: float, 
         "travelMode": "WALK"
     }
 
-    async with httpx.AsyncClient() as client:
-        try:
-            response = await client.post(url, headers=headers, json=payload)
-            response.raise_for_status()
-            data = response.json()
-            
-            if "routes" in data and len(data["routes"]) > 0:
-                return data["routes"][0].get("polyline", {}).get("encodedPolyline", "")
-            else:
-                print(f"Routes API returned no routes or error: {data}")
-                return ""
-        except Exception as e:
-            print(f"Error fetching directions via Routes API: {e}")
-            if hasattr(e, 'response') and e.response:
-                print(f"Response Body: {e.response.text}")
+    client = _get_client()
+    try:
+        response = await client.post(url, headers=headers, json=payload)
+        response.raise_for_status()
+        data = response.json()
+
+        if "routes" in data and len(data["routes"]) > 0:
+            return data["routes"][0].get("polyline", {}).get("encodedPolyline", "")
+        else:
+            print(f"Routes API returned no routes or error: {data}")
             return ""
+    except Exception as e:
+        print(f"Error fetching directions via Routes API: {e}")
+        if hasattr(e, 'response') and e.response:
+            print(f"Response Body: {e.response.text}")
+        return ""

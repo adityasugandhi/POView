@@ -12,6 +12,7 @@ interface UseLiveWebSocketOptions {
   onToolResult: (tool: string, data: unknown) => void;
   onStateChange: (state: string) => void;
   onError: (message: string) => void;
+  onToolCall?: (tool: string, args: Record<string, unknown>) => void;
 }
 
 export function useLiveWebSocket({
@@ -20,6 +21,7 @@ export function useLiveWebSocket({
   onToolResult,
   onStateChange,
   onError,
+  onToolCall,
 }: UseLiveWebSocketOptions) {
   const [isConnected, setIsConnected] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
@@ -79,6 +81,9 @@ export function useLiveWebSocket({
                 break;
               case "state":
                 onStateChange(msg.state);
+                if (msg.tool && msg.args) {
+                  onToolCall?.(msg.tool, msg.args);
+                }
                 break;
               case "error":
                 onError(msg.message);
@@ -90,7 +95,7 @@ export function useLiveWebSocket({
         };
       });
     },
-    [onAudio, onTranscript, onToolResult, onStateChange, onError],
+    [onAudio, onTranscript, onToolResult, onStateChange, onError, onToolCall],
   );
 
   const disconnect = useCallback(() => {
@@ -173,6 +178,24 @@ export function useLiveWebSocket({
     [],
   );
 
+  /** Send a screen capture frame to the voice agent for visual awareness */
+  const sendScreenCapture = useCallback((jpegBlob: Blob) => {
+    if (wsRef.current?.readyState === WebSocket.OPEN) {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(",")[1];
+        wsRef.current?.send(
+          JSON.stringify({
+            type: "screen_capture",
+            data: base64,
+            mimeType: "image/jpeg",
+          }),
+        );
+      };
+      reader.readAsDataURL(jpegBlob);
+    }
+  }, []);
+
   return {
     connect,
     disconnect,
@@ -181,6 +204,7 @@ export function useLiveWebSocket({
     sendCameraContext,
     sendTourProgress,
     sendTourLifecycle,
+    sendScreenCapture,
     isConnected,
   };
 }
