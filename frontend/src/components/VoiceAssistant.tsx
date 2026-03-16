@@ -159,6 +159,11 @@ export default function VoiceAssistant({
     if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
   }, []);
 
+  const [lastFlyToPlace, setLastFlyToPlace] = useState<string | null>(null);
+
+  // Ref to break circular dep: handleToolResult needs sendText, but useLiveWebSocket needs handleToolResult
+  const sendTextRef = useRef<(text: string) => void>(() => {});
+
   const handleToolResult = useCallback(
     (tool: string, data: unknown) => {
       const d = data as Record<string, unknown> | null;
@@ -166,7 +171,10 @@ export default function VoiceAssistant({
       switch (tool) {
         case "fly_to_location":
           useSimulationStore.getState().setIsScanning(false);
-          if (d.place_name) lastFlyToPlaceRef.current = d.place_name as string;
+          if (d.place_name) {
+            lastFlyToPlaceRef.current = d.place_name as string;
+            setLastFlyToPlace(d.place_name as string);
+          }
           if (d.location) {
             onLocationUpdate?.(
               d.location as { lat: number; lng: number },
@@ -196,7 +204,12 @@ export default function VoiceAssistant({
                 bounding_box: telemetry.viewRectangle || { west: 0, south: 0, east: 0, north: 0 },
               });
             }
-          }, 3500);
+          }, 20000);
+
+          // Auto-trigger neighborhood analysis so InsightPanel populates
+          if (d.place_name) {
+            sendTextRef.current(`Analyze ${d.place_name} neighborhood in detail`);
+          }
           break;
         case "neighborhood":
         case "search_neighborhood":
@@ -309,9 +322,14 @@ export default function VoiceAssistant({
                   targetLat: loc.lat,
                   targetLng: loc.lng,
                 });
-                // Clear cinematic flight after arrival animation
+                // Phase 4: Orbit after arrival animation
                 setTimeout(() => {
-                  useSimulationStore.getState().setCinematicFlight(null);
+                  useSimulationStore.getState().setCinematicFlight({
+                    active: true,
+                    phase: "orbit",
+                    targetLat: loc.lat,
+                    targetLng: loc.lng,
+                  });
                 }, 3000);
               }, 6000);
             }
@@ -348,9 +366,10 @@ export default function VoiceAssistant({
 
   // Keep refs in sync for use inside callbacks
   useEffect(() => {
+    sendTextRef.current = sendText;
     sendScreenCaptureRef.current = sendScreenCapture;
     sendCameraContextRef.current = sendCameraContext;
-  }, [sendScreenCapture, sendCameraContext]);
+  }, [sendText, sendScreenCapture, sendCameraContext]);
 
   // Expose WebSocket methods for tour orchestrator
   const wsMethodsExposed = React.useRef(false);
@@ -564,7 +583,7 @@ export default function VoiceAssistant({
                 {voiceState}
               </span>
             </div>
-            {lastFlyToPlaceRef.current && isConnected && (
+            {lastFlyToPlace && isConnected && (
               <button
                 onClick={handleAnalyzeNow}
                 disabled={voiceState === "processing"}

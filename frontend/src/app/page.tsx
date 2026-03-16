@@ -9,6 +9,7 @@ import {
   getStoredLocation,
   DefaultLocation as LocSelectorDefault,
 } from "@/components/LocationSelector";
+import { ChevronLeft, ChevronRight, Minimize2, Maximize2 } from "lucide-react";
 import VoiceAssistant from "@/components/VoiceAssistant";
 import TourProgressBar from "@/components/TourProgressBar";
 import GridScanLoader from "@/components/GridScanLoader";
@@ -71,6 +72,8 @@ export default function Home() {
   const droneWaypoints = useSimulationStore((s) => s.droneWaypoints);
   const activeDroneWaypoint = useSimulationStore((s) => s.activeDroneWaypoint);
   const isScanning = useSimulationStore((s) => s.isScanning);
+  const allPanelsCollapsed = useSimulationStore((s) => s.allPanelsCollapsed);
+  const setAllPanelsCollapsed = useSimulationStore((s) => s.setAllPanelsCollapsed);
   const cinematicFlight = useSimulationStore((s) => s.cinematicFlight);
 
   // ── Zustand actions ─────────────────────────────────────────────────
@@ -301,6 +304,17 @@ export default function Home() {
     setRecenterTrigger();
   };
 
+  const handleGoHome = useCallback(() => {
+    setIsTransitioning(true);
+    setHasStarted(false);
+    // Allow one frame for the off-screen landing page to mount, then slide it in
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        setIsTransitioning(false);
+      });
+    });
+  }, [setIsTransitioning, setHasStarted]);
+
   const handleClear = () => {
     clearSearch();
     setDroneIndex(-1);
@@ -437,9 +451,10 @@ export default function Home() {
             : "opacity-0 pointer-events-none"
         }`}
       >
-        {/* Top-Center Weather Pane & Utilities */}
-        {profileData && profileData.weather && (
-          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-4">
+        {/* Top-Center Controls — always visible */}
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-4">
+          {/* Weather pane — hidden when panels collapsed */}
+          {!allPanelsCollapsed && profileData && profileData.weather && (
             <div className="bg-black/40 backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-5 py-2 flex items-center space-x-3 pointer-events-auto transition-transform hover:scale-105">
               <span className="text-xl">
                 {profileData.weather.is_day ? "☀️" : "🌙"}
@@ -455,6 +470,7 @@ export default function Home() {
                 </div>
               </div>
             </div>
+          )}
 
             <button
               onClick={handleRecenter}
@@ -479,6 +495,21 @@ export default function Home() {
               </svg>
               <span className="text-xs font-bold text-cyan-300 group-hover:text-white transition-colors tracking-wider">
                 RECENTER
+              </span>
+            </button>
+
+            <button
+              onClick={() => setAllPanelsCollapsed(!allPanelsCollapsed)}
+              className="bg-black/40 hover:bg-cyan-500/20 border border-cyan-400/30 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-4 py-3 flex items-center space-x-2 pointer-events-auto transition-all duration-300 group"
+              title={allPanelsCollapsed ? "Show all panels" : "Hide panels for immersive view"}
+            >
+              {allPanelsCollapsed ? (
+                <Maximize2 className="w-4 h-4 text-cyan-300 group-hover:text-white transition-colors" />
+              ) : (
+                <Minimize2 className="w-4 h-4 text-cyan-300 group-hover:text-white transition-colors" />
+              )}
+              <span className="text-xs font-bold text-cyan-300 group-hover:text-white transition-colors tracking-wider">
+                {allPanelsCollapsed ? "EXPAND" : "FOCUS"}
               </span>
             </button>
 
@@ -516,6 +547,7 @@ export default function Home() {
                       className="rounded-full px-3 py-2 text-xs font-bold tracking-wider transition-all duration-200 disabled:opacity-30 disabled:cursor-not-allowed text-purple-300 hover:bg-purple-500/30 hover:text-white"
                       title="Previous waypoint"
                     >
+                      <ChevronLeft className="w-3.5 h-3.5 inline-block mr-0.5" />
                       PREV
                     </button>
 
@@ -537,6 +569,7 @@ export default function Home() {
                       title="Next waypoint"
                     >
                       NEXT
+                      <ChevronRight className="w-3.5 h-3.5 inline-block ml-0.5" />
                     </button>
 
                     <div className="w-px h-6 bg-purple-400/30 mx-1" />
@@ -562,16 +595,16 @@ export default function Home() {
                 )}
               </>
             )}
-          </div>
-        )}
+        </div>
 
         {/* Floating UI Layer Left Side */}
+        {!allPanelsCollapsed && (
         <div className="absolute inset-y-6 left-6 w-[400px] md:w-[480px] z-10 flex flex-col pointer-events-none space-y-6">
           {/* Title and Search Header */}
           <div className="pointer-events-auto shrink-0 flex flex-col space-y-5">
             <div className="px-2 pt-2 flex items-center space-x-2">
               <button
-                onClick={() => { setHasStarted(false); setIsTransitioning(false); }}
+                onClick={handleGoHome}
                 className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 flex items-center space-x-3 w-fit cursor-pointer hover:border-white/20 hover:bg-black/50 transition-all duration-300"
                 title="Back to home"
               >
@@ -586,7 +619,7 @@ export default function Home() {
                 </div>
               </button>
               <button
-                onClick={() => { setHasStarted(false); setIsTransitioning(false); }}
+                onClick={handleGoHome}
                 className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl p-3 flex items-center justify-center hover:border-white/20 hover:bg-black/50 transition-all duration-300 group"
                 title="Back to home"
               >
@@ -624,8 +657,9 @@ export default function Home() {
             )}
           </div>
         </div>
+        )}
 
-        {isScanning ? (
+        {!allPanelsCollapsed && (isScanning ? (
           <div className="absolute inset-y-6 right-6 w-[400px] z-10 hidden lg:flex flex-col">
             <GridScanLoader />
           </div>
@@ -639,7 +673,7 @@ export default function Home() {
               profileData={profileData ?? undefined}
             />
           </div>
-        ) : null}
+        ) : null)}
       </div>
 
       {/* Tour Progress Bar (visible only during active tours) */}

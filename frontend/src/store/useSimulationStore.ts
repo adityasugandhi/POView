@@ -74,10 +74,13 @@ export interface SimulationState {
   // Scanning state (GridScanLoader during fly_to_location)
   isScanning: boolean;
 
+  // Focus mode — collapse all UI panels for immersive map view
+  allPanelsCollapsed: boolean;
+
   // Cinematic flight state
   cinematicFlight: {
     active: boolean;
-    phase: "high-orbit" | "approach" | "arrive" | "idle";
+    phase: "high-orbit" | "approach" | "arrive" | "orbit" | "idle";
     targetLat: number;
     targetLng: number;
   } | null;
@@ -122,6 +125,7 @@ export interface SimulationState {
   setIsVoiceSessionActive: (active: boolean) => void;
   setTourStatus: (status: TourStatus) => void;
   setIsScanning: (scanning: boolean) => void;
+  setAllPanelsCollapsed: (collapsed: boolean) => void;
   setCinematicFlight: (flight: SimulationState["cinematicFlight"]) => void;
   setLiveApiConnectionStatus: (
     status: SimulationState["liveApiConnectionStatus"],
@@ -201,6 +205,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   tourStatus: "idle",
 
   isScanning: false,
+  allPanelsCollapsed: false,
   cinematicFlight: null,
   hasStarted: false,
   isTransitioning: false,
@@ -249,6 +254,7 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
     set({ isTransitioning: transitioning }),
   setDefaultLocation: (loc) => set({ defaultLocation: loc }),
   setIsScanning: (scanning) => set({ isScanning: scanning }),
+  setAllPanelsCollapsed: (collapsed) => set({ allPanelsCollapsed: collapsed }),
   setCinematicFlight: (flight) => set({ cinematicFlight: flight }),
   setIsVoiceSessionActive: (active) => set({ isVoiceSessionActive: active }),
   setTourStatus: (status) => set({ tourStatus: status }),

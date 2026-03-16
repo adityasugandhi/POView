@@ -69,7 +69,7 @@ export default function RecommendationsPanel({
       </div>
 
       {/* Scrollable List */}
-      <div className="overflow-y-auto overflow-x-hidden scrollbar-thin scrollbar-thumb-white/10 scrollbar-track-transparent p-4 space-y-4">
+      <div className="overflow-y-auto overflow-x-hidden p-4 space-y-4">
         {recommendations.map((rec, index) => (
           <div
             key={index}
