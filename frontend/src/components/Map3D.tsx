@@ -90,6 +90,12 @@ export default function Map3D({
   const GOOGLE_TILE_URL = `https://tile.googleapis.com/v1/3dtiles/root.json?key=${process.env.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY}`;
   const viewerInitialized = useRef(false);
 
+  const contextOptions = useMemo(() => ({
+    webgl: {
+      preserveDrawingBuffer: true,
+    },
+  }), []);
+
   // Cleanup spatial perception on unmount
   useEffect(() => {
     return () => {
@@ -264,6 +270,7 @@ export default function Map3D({
         navigationHelpButton={false}
         selectionIndicator={false}
         infoBox={false}
+        contextOptions={contextOptions}
         ref={(e: { cesiumElement?: unknown } | null) => {
           if (e && e.cesiumElement) {
             window.cesiumViewer = e.cesiumElement as CesiumViewer;
@@ -294,7 +301,7 @@ export default function Map3D({
           destination={cameraConfig.destination}
           orientation={cameraConfig.orientation}
           duration={
-            "duration" in cameraConfig ? (cameraConfig.duration as number) : 3.5
+            "duration" in cameraConfig ? (cameraConfig.duration as number) : 3
           }
         />
 

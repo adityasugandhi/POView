@@ -1,39 +1,41 @@
-import asyncio
+import os
 import json
+import asyncio
+import base64
+import time
 import traceback
-
 from dotenv import load_dotenv
 
 load_dotenv()
 
-import polyline
 from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-from google.adk.agents.live_request_queue import LiveRequestQueue
-from google.adk.agents.run_config import RunConfig, StreamingMode
+from fastapi.middleware.cors import CORSMiddleware
+from pydantic import BaseModel
+import polyline
 from google.adk.runners import Runner
+from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.agents.live_request_queue import LiveRequestQueue
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
-from pydantic import BaseModel
 
-from agents import run_narrated_tour_workflow, run_neighborhood_workflow
-from agents.live_agent import create_live_agent
+from services.places_service import (
+    get_places_details,
+    get_nearby_places,
+    format_context_payload,
+    get_autocomplete_predictions,
+    contextual_places_search,
+    get_directions,
+    reverse_geocode,
+)
 from services.gemini_client import (
     generate_neighborhood_profile,
     parse_contextual_intent,
 )
-from services.places_service import (
-    contextual_places_search,
-    format_context_payload,
-    get_autocomplete_predictions,
-    get_directions,
-    get_nearby_places,
-    get_places_details,
-    reverse_geocode,
-)
 from services.redis_cache import get_cached_profile, set_cached_profile
 from services.weather_service import fetch_weather_forecast
+from agents import run_neighborhood_workflow, run_narrated_tour_workflow
+from agents.live_agent import create_live_agent
 
 app = FastAPI(title="GroundLevel AI Platform")
 
@@ -437,22 +439,30 @@ async def live_websocket(websocket: WebSocket, session_id: str):
     )
 
     live_queue = LiveRequestQueue()
+    _last_screen_capture_time = 0.0
 
     async def upstream_task():
         """Reads audio/text from WebSocket and pushes into the LiveRequestQueue."""
+        nonlocal _last_screen_capture_time
         try:
             while True:
                 data = await websocket.receive()
+                if data.get("type") == "websocket.disconnect":
+                    break
 
                 if "bytes" in data and data["bytes"]:
                     # Binary audio data from browser mic (Int16 PCM 16kHz)
                     audio_bytes = data["bytes"]
-                    live_queue.send_realtime(
-                        types.Blob(
-                            mime_type="audio/pcm;rate=16000",
-                            data=audio_bytes,
+                    try:
+                        live_queue.send_realtime(
+                            types.Blob(
+                                mime_type="audio/pcm;rate=16000",
+                                data=audio_bytes,
+                            )
                         )
-                    )
+                    except Exception as e:
+                        print(f"send_realtime audio failed: {e}")
+                        break
                 elif "text" in data and data["text"]:
                     # Text message (could be text command, spatial context, or tour cue)
                     try:
@@ -516,6 +526,18 @@ async def live_websocket(websocket: WebSocket, session_id: str):
                                         role="user",
                                     )
                                 )
+                        elif msg_type == "screen_capture":
+                            image_bytes = base64.b64decode(msg.get("data", ""))
+                            mime = msg.get("mimeType", "image/jpeg")
+                            now = time.time()
+                            if image_bytes and len(image_bytes) < 500_000 and now - _last_screen_capture_time >= 2.0:
+                                _last_screen_capture_time = now
+                                try:
+                                    live_queue.send_realtime(
+                                        types.Blob(mime_type=mime, data=image_bytes)
+                                    )
+                                except Exception as e:
+                                    print(f"send_realtime screen_capture failed: {e}")
                         elif msg_type in (
                             "tour_start",
                             "tour_pause",
@@ -540,8 +562,11 @@ async def live_websocket(websocket: WebSocket, session_id: str):
 
         except WebSocketDisconnect:
             pass
+        except RuntimeError:
+            pass  # Client already disconnected
         except Exception as e:
             print(f"Upstream error: {e}")
+            traceback.print_exc()
         finally:
             live_queue.close()
 
@@ -557,7 +582,7 @@ async def live_websocket(websocket: WebSocket, session_id: str):
                 if not event:
                     continue
 
-                # Handle audio output
+                # Handle content parts (audio, text, function calls/responses)
                 if event.content and event.content.parts:
                     for part in event.content.parts:
                         # Audio response
@@ -568,21 +593,58 @@ async def live_websocket(websocket: WebSocket, session_id: str):
                             except Exception:
                                 return
 
-                        # Text transcription from agent
-                        if part.text:
+                        # Function call — tool is being invoked by the model
+                        if part.function_call:
+                            tool_name = part.function_call.name
+                            print(f"[Live] Function call: {tool_name}({part.function_call.args})")
+                            try:
+                                await websocket.send_text(
+                                    json.dumps({
+                                        "type": "state",
+                                        "state": "processing",
+                                        "tool": tool_name,
+                                        "args": dict(part.function_call.args),
+                                    })
+                                )
+                            except Exception:
+                                return
+
+                        # Function response — tool result returned by ADK
+                        if part.function_response:
+                            tool_name = part.function_response.name
+                            tool_data = part.function_response.response
+                            print(f"[Live] Function response: {tool_name} -> {str(tool_data)[:200]}")
                             try:
                                 await websocket.send_text(
                                     json.dumps(
                                         {
-                                            "type": "transcript",
-                                            "role": "agent",
-                                            "text": part.text,
-                                            "finished": True,
+                                            "type": "tool_result",
+                                            "tool": tool_name,
+                                            "data": tool_data,
                                         }
                                     )
                                 )
                             except Exception:
                                 return
+
+                        # Text from agent (skip internal reasoning/thinking text)
+                        if part.text and not part.function_call and not part.function_response:
+                            # Filter out model thinking blocks (start with **)
+                            text = part.text.strip()
+                            if not text.startswith("**"):
+                                try:
+                                    await websocket.send_text(
+                                        json.dumps(
+                                            {
+                                                "type": "transcript",
+                                                "role": "agent",
+                                                "text": text,
+                                                "finished": True,
+                                            }
+                                        )
+                                    )
+                                except Exception:
+                                    return
 
                 # Handle input transcription
                 if hasattr(event, "input_transcription") and event.input_transcription:
@@ -629,13 +691,18 @@ async def live_websocket(websocket: WebSocket, session_id: str):
                     except Exception:
                         return
 
-                # Handle tool calls and their results
+                # Fallback: handle event-level tool_calls/tool_results (non-Live API path)
                 if hasattr(event, "tool_calls") and event.tool_calls:
-                    await websocket.send_text(
-                        json.dumps({"type": "state", "state": "processing"})
-                    )
+                    print(f"[Live] tool_calls attr: {[getattr(tc, 'name', 'unknown') for tc in event.tool_calls]}")
+                    try:
+                        await websocket.send_text(
+                            json.dumps({"type": "state", "state": "processing"})
+                        )
+                    except Exception:
+                        return
 
                 if hasattr(event, "tool_results") and event.tool_results:
+                    print(f"[Live] tool_results attr: {[getattr(r, 'name', 'unknown') for r in event.tool_results]}")
                     for result in event.tool_results:
                         tool_name = getattr(result, "name", "unknown")
                         tool_data = None
@@ -660,14 +727,19 @@ async def live_websocket(websocket: WebSocket, session_id: str):
                             return
 
         except Exception as e:
-            print(f"Downstream error: {e}")
-            traceback.print_exc()
-            try:
-                await websocket.send_text(
-                    json.dumps({"type": "error", "message": str(e)})
-                )
-            except Exception:
-                pass
+            error_str = str(e)
+            # 1000 = normal WebSocket close, not a real error
+            if "1000" in error_str:
+                print(f"[Live] Session closed normally: {error_str}")
+            else:
+                print(f"Downstream error: {e}")
+                traceback.print_exc()
+                try:
+                    await websocket.send_text(
+                        json.dumps({"type": "error", "message": error_str})
+                    )
+                except Exception:
+                    pass
 
     # Run upstream and downstream concurrently
     upstream = asyncio.create_task(upstream_task())

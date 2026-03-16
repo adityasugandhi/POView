@@ -37,6 +37,7 @@ interface TourPlaybackState {
 export function useTourPlayback(
   sendTourProgress: (...args: unknown[]) => void,
   sendTourLifecycle: (...args: unknown[]) => void,
+  sendScreenCapture?: (...args: unknown[]) => void,
 ): TourPlaybackState {
   const tourStatus = useSimulationStore((s) => s.tourStatus);
   const [progress, setProgress] = useState(0);
@@ -53,9 +54,10 @@ export function useTourPlayback(
       initOrchestrator({
         sendTourProgress,
         sendTourLifecycle,
+        sendScreenCapture: sendScreenCapture || (() => {}),
       });
     }
-  }, [sendTourProgress, sendTourLifecycle]);
+  }, [sendTourProgress, sendTourLifecycle, sendScreenCapture]);
 
   // Update progress and current segment on an interval when tour is active
   useEffect(() => {

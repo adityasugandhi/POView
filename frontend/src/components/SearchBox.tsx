@@ -1,6 +1,7 @@
 "use client";
 import React, { useState, useEffect, useRef } from "react";
-import { Search, MapPin, Navigation, Trash2, Globe } from "lucide-react";
+import { Search, MapPin, Navigation, Trash2, Globe, ChevronDown } from "lucide-react";
+import { useSimulationStore } from "@/store/useSimulationStore";
 
 interface Suggestion {
   placePrediction: {
@@ -52,7 +53,16 @@ export default function SearchBox({
   const [radiusValue, setRadiusValue] = useState(0.4);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isOpen, setIsOpen] = useState(false);
+  const [collapsed, setCollapsed] = useState(false);
   const wrapperRef = useRef<HTMLDivElement>(null);
+
+  // Auto-collapse when scanning/flying starts
+  const isScanning = useSimulationStore((s) => s.isScanning);
+  useEffect(() => {
+    if (!isScanning) return;
+    const id = requestAnimationFrame(() => setCollapsed(true));
+    return () => cancelAnimationFrame(id);
+  }, [isScanning]);
 
   const fetchSuggestions = async (query: string) => {
     try {
@@ -131,6 +141,27 @@ export default function SearchBox({
       );
     }
   };
+
+  // Collapsed mini-bar: click to expand
+  if (collapsed) {
+    return (
+      <div ref={wrapperRef} className="relative z-50 w-full">
+        <button
+          type="button"
+          onClick={() => setCollapsed(false)}
+          className="w-full flex items-center justify-between bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl px-4 py-3 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] transition-all hover:border-white/20 hover:bg-black/50 group"
+        >
+          <div className="flex items-center space-x-3">
+            <Search className="w-4 h-4 text-white/40 group-hover:text-cyan-400 transition-colors" />
+            <span className="text-sm text-white/50 group-hover:text-white/70 font-medium truncate max-w-[260px] transition-colors">
+              {inputValue || "Search location..."}
+            </span>
+          </div>
+          <ChevronDown className="w-4 h-4 text-white/30 group-hover:text-white/60 transition-colors" />
+        </button>
+      </div>
+    );
+  }
 
   return (
     <div ref={wrapperRef} className="relative z-50 w-full">
