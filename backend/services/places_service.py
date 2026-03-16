@@ -1,6 +1,6 @@
 import os
 import httpx
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 
 API_KEY = os.getenv("GOOGLE_MAPS_API_KEY", "YOUR_API_KEY_HERE")
 
@@ -19,14 +19,28 @@ def _build_photo_url(photo_name: str) -> str:
     """Build a Google Places photo URL from the photo resource name."""
     return f"https://places.googleapis.com/v1/{photo_name}/media?maxWidthPx=400&key={API_KEY}"
 
-async def get_autocomplete_predictions(input_text: str) -> List[Dict[str, Any]]:
-    """Secure backend proxy for Google Places Autocomplete API to hide the API key."""
+async def get_autocomplete_predictions(input_text: str, lat: Optional[float] = None, lng: Optional[float] = None) -> List[Dict[str, Any]]:
+    """Secure backend proxy for Google Places Autocomplete API to hide the API key.
+
+    Args:
+        input_text: The search query text.
+        lat: Optional latitude to bias results toward (viewport center).
+        lng: Optional longitude to bias results toward (viewport center).
+    """
     url = "https://places.googleapis.com/v1/places:autocomplete"
     headers = {
         "X-Goog-Api-Key": API_KEY,
         "Content-Type": "application/json"
     }
     payload = {"input": input_text}
+
+    if lat is not None and lng is not None:
+        payload["locationBias"] = {
+            "circle": {
+                "center": {"latitude": lat, "longitude": lng},
+                "radius": 50000.0,
+            }
+        }
     
     client = _get_client()
     try:
