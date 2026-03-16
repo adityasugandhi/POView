@@ -18,6 +18,7 @@ import {
   getCurrentSegment,
 } from "@/lib/tourOrchestrator";
 import { getSharedAudioContext } from "@/lib/sharedAudioContext";
+import { getViewer } from "@/lib/spatialPerceptionEngine";
 import type {
   NarrationTimeline,
   NarrationSegment,
@@ -85,12 +86,30 @@ export function useTourPlayback(
   }, [tourStatus]);
 
   const startNarratedTour = useCallback((timeline: NarrationTimeline) => {
-    try {
-      const audioContext = getSharedAudioContext();
-      startTour(timeline, audioContext);
-    } catch (err) {
-      console.error("[useTourPlayback] Failed to get AudioContext", err);
-    }
+    // Tour data can arrive before the Cesium viewer is mounted (race condition
+    // between pipeline_complete WS message and Map3D render), and window.Cesium
+    // must be set before trajectoryLoader can build splines.
+    // Retry up to 20 times (~10s) in 500ms increments.
+    const MAX_RETRIES = 20;
+    const attempt = (retriesLeft: number) => {
+      const viewer = getViewer();
+      const cesiumReady = !!(window as { Cesium?: unknown }).Cesium;
+      if (!viewer || !cesiumReady) {
+        if (retriesLeft > 0) {
+          setTimeout(() => attempt(retriesLeft - 1), 500);
+        } else {
+          console.error("[useTourPlayback] Cesium viewer not ready after retries — tour aborted");
+        }
+        return;
+      }
+      try {
+        const audioContext = getSharedAudioContext();
+        startTour(timeline, audioContext);
+      } catch (err) {
+        console.error("[useTourPlayback] Failed to start tour", err);
+      }
+    };
+    attempt(MAX_RETRIES);
   }, []);
 
   return {

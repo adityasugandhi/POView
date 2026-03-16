@@ -24,7 +24,7 @@ Extract ONLY places that have explicit or inferable coordinates from the text. R
 class GlobeControllerAgent(BaseAgent):
     """Custom agent that computes camera waypoints for Cesium drone flights."""
 
-    model: str = "gemini-2.5-flash"
+    model: str = "gemini-3.1-pro-preview-customtools"
 
     async def _run_async_impl(
         self, ctx: InvocationContext

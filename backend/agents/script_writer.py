@@ -8,7 +8,7 @@ def create_script_writer_agent() -> LlmAgent:
 
     return LlmAgent(
         name="ScriptWriterAgent",
-        model="gemini-2.5-pro",
+        model="gemini-3.1-pro-preview-customtools",
         instruction="""You are an expert urban analyst and neighborhood storyteller. Your task is to produce a rich, grounded narrative about the location provided in the session state.
 
 Use your Google Search grounding tool to gather real-time, verified facts about this area. Do NOT fabricate information.

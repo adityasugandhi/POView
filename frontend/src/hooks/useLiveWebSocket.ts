@@ -29,11 +29,14 @@ export function useLiveWebSocket({
   const audioSentRef = useRef(false);
 
   const connect = useCallback(
-    (sessionId: string): Promise<void> => {
+    (sessionId: string, model?: string): Promise<void> => {
       if (wsRef.current) return Promise.resolve();
 
       return new Promise<void>((resolve, reject) => {
-        const ws = new WebSocket(`ws://localhost:8000/ws/live/${sessionId}`);
+        const url = model
+          ? `ws://localhost:8000/ws/live/${sessionId}?model=${encodeURIComponent(model)}`
+          : `ws://localhost:8000/ws/live/${sessionId}`;
+        const ws = new WebSocket(url);
         ws.binaryType = "arraybuffer";
         wsRef.current = ws;
 
@@ -77,13 +80,17 @@ export function useLiveWebSocket({
                   finished: msg.finished,
                 });
                 break;
-              case "tool_result":
+              case "tool_result": {
                 onToolResult(msg.tool, msg.data);
-                if (msg.tool) {
-                  // LAYER 1: Complete analysis when tool returns
+                // Don't complete analysis for background pipeline acks — those complete
+                // via pipeline_complete once the streaming workflow finishes.
+                const isBackgroundAck =
+                  msg.data && msg.data.status === "analysis_started";
+                if (msg.tool && !isBackgroundAck) {
                   useSimulationStore.getState().completeAnalysis();
                 }
                 break;
+              }
               case "state":
                 if (msg.state === "pipeline_stage") {
                   onStateChange(msg.stage);

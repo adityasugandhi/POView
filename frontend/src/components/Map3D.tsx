@@ -9,7 +9,17 @@ import {
   PointGraphics,
   useCesium,
 } from "resium";
+import * as CesiumNS from "cesium";
 import { Cartesian3, Rectangle, Math as CesiumMath, Color } from "cesium";
+
+// trajectoryLoader, cameraSyncController, and spatialPerceptionEngine all
+// read window.Cesium for class access.  Since we bundle Cesium via npm (not
+// CDN script tag), window.Cesium is never set automatically — expose it here
+// once at module load so those modules work correctly.
+if (typeof window !== "undefined" && !window.Cesium) {
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  (window as any).Cesium = CesiumNS;
+}
 import RecommendationPin3D from "./RecommendationPin3D";
 import {
   initSpatialPerception,

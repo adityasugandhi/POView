@@ -35,7 +35,13 @@ from services.gemini_client import (
 from services.redis_cache import get_cached_profile, set_cached_profile
 from services.weather_service import fetch_weather_forecast
 from agents import run_neighborhood_workflow, run_narrated_tour_workflow
-from agents.live_agent import create_live_agent
+from agents.live_agent import (
+    create_live_agent,
+    AVAILABLE_MODELS,
+    DEFAULT_MODEL,
+    VALID_MODEL_IDS,
+    VISION_CAPABLE_MODELS,
+)
 from agents.live_tools import current_session_id, active_ws_senders
 
 app = FastAPI(title="GroundLevel AI Platform")
@@ -49,13 +55,15 @@ app.add_middleware(
 )
 
 # --- Live Agent Setup ---
-live_agent = create_live_agent()
+# Session service is shared; agents/runners are created per-session so each
+# connection can use a different model selected from the dev dropdown.
 live_session_service = InMemorySessionService()
-live_runner = Runner(
-    agent=live_agent,
-    app_name="poview-live",
-    session_service=live_session_service,
-)
+
+
+@app.get("/api/live_models")
+async def get_live_models():
+    """Returns the list of available Gemini Live models for the dev model selector."""
+    return {"models": AVAILABLE_MODELS, "default": DEFAULT_MODEL}
 
 
 @app.get("/api/autocomplete")
@@ -99,7 +107,7 @@ async def reverse_geocode_endpoint(lat: float, lng: float):
 class ProximityRequest(BaseModel):
     place_id: str
     intent: str
-    radius: float = 0.4
+    radius: float = 1.0
 
 
 @app.post("/api/proximity_search")
@@ -420,9 +428,31 @@ async def narrated_tour(place_id: str, intent: str = None):
 
 
 @app.websocket("/ws/live/{session_id}")
-async def live_websocket(websocket: WebSocket, session_id: str):
-    """Bidirectional audio streaming via Gemini Live API + ADK."""
+async def live_websocket(websocket: WebSocket, session_id: str, model: str = DEFAULT_MODEL):
+    """Bidirectional audio streaming via Gemini Live API + ADK.
+
+    Query params:
+        model — Gemini Live model ID (must be one of VALID_MODEL_IDS).
+                 Defaults to DEFAULT_MODEL.
+    """
     await websocket.accept()
+
+    # Validate model; fall back to default if unknown so the session never dies
+    # from a bad query param.
+    if model not in VALID_MODEL_IDS:
+        print(f"[Live] Unknown model '{model}', falling back to {DEFAULT_MODEL}")
+        model = DEFAULT_MODEL
+
+    vision_enabled = model in VISION_CAPABLE_MODELS
+    print(f"[Live] Session {session_id} using model={model} vision={vision_enabled}")
+
+    # Create a per-session agent + runner so each connection can use a different model.
+    live_agent = create_live_agent(model=model)
+    live_runner = Runner(
+        agent=live_agent,
+        app_name="poview-live",
+        session_service=live_session_service,
+    )
 
     # Create a session for this connection
     user_id = f"live_user_{session_id}"
@@ -439,11 +469,13 @@ async def live_websocket(websocket: WebSocket, session_id: str):
         output_audio_transcription=types.AudioTranscriptionConfig(),
     )
 
-    # Store the WS sender in the global map for this session
-    async def ws_sender(msg: dict):
-        if websocket.client_state.value == 1: # Connected
-            await websocket.send_text(json.dumps(msg))
-            
+    # Store the WS sender in the global map for this session.
+    # Must be synchronous so streaming_workflow.py can call it without await.
+    # Tasks are scheduled on the running event loop so they don't block the caller.
+    def ws_sender(msg: dict):
+        if websocket.client_state.value == 1:  # Connected
+            asyncio.create_task(websocket.send_text(json.dumps(msg)))
+
     active_ws_senders[session.id] = ws_sender
 
     live_queue = LiveRequestQueue()
@@ -535,17 +567,24 @@ async def live_websocket(websocket: WebSocket, session_id: str):
                                     )
                                 )
                         elif msg_type == "screen_capture":
-                            image_bytes = base64.b64decode(msg.get("data", ""))
-                            mime = msg.get("mimeType", "image/jpeg")
-                            now = time.time()
-                            if image_bytes and len(image_bytes) < 500_000 and now - _last_screen_capture_time >= 2.0:
-                                _last_screen_capture_time = now
-                                try:
-                                    live_queue.send_realtime(
-                                        types.Blob(mime_type=mime, data=image_bytes)
-                                    )
-                                except Exception as e:
-                                    print(f"send_realtime screen_capture failed: {e}")
+                            # Only forward to Gemini if the selected model supports
+                            # vision input via send_realtime.  Audio-only models
+                            # (e.g. gemini-2.5-flash-native-audio-*) respond with a
+                            # 1008 policy violation that kills the entire session.
+                            if not vision_enabled:
+                                pass  # silently drop — model doesn't support images
+                            else:
+                                image_bytes = base64.b64decode(msg.get("data", ""))
+                                mime = msg.get("mimeType", "image/jpeg")
+                                now = time.time()
+                                if image_bytes and len(image_bytes) < 500_000 and now - _last_screen_capture_time >= 2.0:
+                                    _last_screen_capture_time = now
+                                    try:
+                                        live_queue.send_realtime(
+                                            types.Blob(mime_type=mime, data=image_bytes)
+                                        )
+                                    except Exception as e:
+                                        print(f"send_realtime screen_capture failed: {e}")
                         elif msg_type in (
                             "tour_start",
                             "tour_pause",

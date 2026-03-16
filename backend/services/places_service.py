@@ -168,14 +168,14 @@ async def contextual_places_search(lat: float, lng: float, radius_miles: float, 
         "Content-Type": "application/json"
     }
 
+    radius_miles = min(radius_miles, 50.0)  # hard cap at 50 miles
     radius_meters = radius_miles * 1609.34
     text_query = " ".join(keywords)
-    
-    # Text Search locationRestriction requires a rectangle. Let's calculate a rough bounding box.
-    # 1 degree of latitude is ~111km. So roughly 1 meter is 1/111000 degrees.
-    lat_offset = radius_meters / 111000.0
-    # Longitude offset depends on latitude.
+
+    # Text Search locationRestriction requires a rectangle — compute a bounding box.
+    # 1 degree of latitude ≈ 111 km.
     import math
+    lat_offset = radius_meters / 111000.0
     lng_offset = radius_meters / (111000.0 * math.cos(math.radians(lat)))
     
     south = lat - lat_offset
@@ -197,7 +197,7 @@ async def contextual_places_search(lat: float, lng: float, radius_miles: float, 
                 }
             }
         },
-        "maxResultCount": 5
+        "maxResultCount": 20
     }
 
     client = _get_client()

@@ -11,26 +11,58 @@
 
 ▲ Next.js 16.1.6 (Turbopack)
 - Local:         http://localhost:3000
-- Network:       http://192.168.1.151:3000
+- Network:       http://10.120.129.35:3000
 - Environments: .env
 
 ✓ Starting...
-✓ Ready in 575ms
- GET / 200 in 481ms (compile: 270ms, render: 212ms)
- GET / 200 in 489ms (compile: 338ms, render: 151ms)
- GET / 200 in 45ms (compile: 1754µs, render: 43ms)
- GET / 200 in 214ms (compile: 12ms, render: 202ms)
- GET / 200 in 79ms (compile: 17ms, render: 62ms)
- GET / 200 in 49ms (compile: 5ms, render: 44ms)
- GET / 200 in 44ms (compile: 4ms, render: 40ms)
- GET / 200 in 132ms (compile: 6ms, render: 127ms)
-✓ Compiled in 672ms
-✓ Compiled in 174ms
-✓ Compiled in 127ms
- GET / 200 in 92ms (compile: 16ms, render: 76ms)
-✓ Compiled in 91ms
- GET / 200 in 274ms (compile: 119ms, render: 156ms)
-✓ Compiled in 153ms
-✓ Compiled in 65ms
+✓ Ready in 670ms
+ GET / 200 in 994ms (compile: 844ms, render: 150ms)
+✓ Compiled in 183ms
+ GET / 200 in 261ms (compile: 83ms, render: 178ms)
+ GET /api/reverse_geocode?lat=40.71792513914959&lng=-73.98527359262087 404 in 198ms (compile: 102ms, render: 96ms)
+✓ Compiled in 220ms
+✓ Compiled in 62ms
 ✓ Compiled in 48ms
- GET / 200 in 501ms (compile: 315ms, render: 187ms)
+ GET /api/live_models 404 in 60ms (compile: 7ms, render: 53ms)
+✓ Compiled in 44ms
+✓ Compiled in 56ms
+✓ Compiled in 254ms
+⚠ Found a change in next.config.ts. Restarting the server to apply the changes...
+⚠ Warning: Next.js inferred your workspace root, but it may not be correct.
+ We detected multiple lockfiles and selected the directory of /Users/shauryatiwari/package-lock.json as the root directory.
+ To silence this warning, set `turbopack.root` in your Next.js config, or consider removing one of the lockfiles if it's not needed.
+   See https://nextjs.org/docs/app/api-reference/config/next-config-js/turbopack#root-directory for more information.
+ Detected additional lockfiles: 
+   * /Users/shauryatiwari/Desktop/gits/gods_eye/frontend/package-lock.json
+
+▲ Next.js 16.1.6 (Turbopack)
+- Local:         http://localhost:3000
+- Network:       http://10.120.129.35:3000
+- Environments: .env
+
+✓ Starting...
+✓ Ready in 793ms
+ GET / 200 in 1079ms (compile: 881ms, render: 198ms)
+(node:92874) [DEP0060] DeprecationWarning: The `util._extend` API is deprecated. Please use Object.assign() instead.
+(Use `node --trace-deprecation ...` to show where the warning was created)
+ GET /demo 200 in 492ms (compile: 241ms, render: 250ms)
+ GET / 200 in 17ms (compile: 6ms, render: 12ms)
+ GET / 200 in 92ms (compile: 26ms, render: 66ms)
+✓ Compiled in 493ms
+✓ Compiled in 59ms
+ GET / 200 in 252ms (compile: 97ms, render: 155ms)
+ GET / 200 in 42ms (compile: 5ms, render: 37ms)
+ GET / 200 in 39ms (compile: 1933µs, render: 37ms)
+ GET / 200 in 34ms (compile: 2ms, render: 32ms)
+ GET / 200 in 35ms (compile: 4ms, render: 31ms)
+ GET / 200 in 31ms (compile: 1829µs, render: 29ms)
+ GET / 200 in 28ms (compile: 1973µs, render: 26ms)
+ GET / 200 in 30ms (compile: 2ms, render: 28ms)
+ GET / 200 in 34ms (compile: 1817µs, render: 32ms)
+✓ Compiled in 93ms
+ GET / 200 in 276ms (compile: 99ms, render: 177ms)
+✓ Compiled in 2.1s
+✓ Compiled in 92ms
+ GET / 200 in 298ms (compile: 107ms, render: 191ms)
+ GET / 200 in 49ms (compile: 5ms, render: 45ms)
+[?25h
