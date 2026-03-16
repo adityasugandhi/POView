@@ -328,7 +328,7 @@ const RecommendationPin3D = ({
 
   // Reset local toggle when external active state changes
   useEffect(() => {
-    if (isActive) setClickedOpen(false);
+    if (isActive) setClickedOpen(false); // eslint-disable-line react-hooks/set-state-in-effect
   }, [isActive]);
 
   useEffect(() => {

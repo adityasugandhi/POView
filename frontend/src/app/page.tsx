@@ -9,7 +9,7 @@ import {
   getStoredLocation,
   DefaultLocation as LocSelectorDefault,
 } from "@/components/LocationSelector";
-import { ChevronLeft, ChevronRight } from "lucide-react";
+import { ChevronLeft, ChevronRight, Minimize2, Maximize2 } from "lucide-react";
 import VoiceAssistant from "@/components/VoiceAssistant";
 import TourProgressBar from "@/components/TourProgressBar";
 import GridScanLoader from "@/components/GridScanLoader";
@@ -72,6 +72,8 @@ export default function Home() {
   const droneWaypoints = useSimulationStore((s) => s.droneWaypoints);
   const activeDroneWaypoint = useSimulationStore((s) => s.activeDroneWaypoint);
   const isScanning = useSimulationStore((s) => s.isScanning);
+  const allPanelsCollapsed = useSimulationStore((s) => s.allPanelsCollapsed);
+  const setAllPanelsCollapsed = useSimulationStore((s) => s.setAllPanelsCollapsed);
   const cinematicFlight = useSimulationStore((s) => s.cinematicFlight);
 
   // ── Zustand actions ─────────────────────────────────────────────────
@@ -449,9 +451,10 @@ export default function Home() {
             : "opacity-0 pointer-events-none"
         }`}
       >
-        {/* Top-Center Weather Pane & Utilities */}
-        {profileData && profileData.weather && (
-          <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-4">
+        {/* Top-Center Controls — always visible */}
+        <div className="absolute top-6 left-1/2 -translate-x-1/2 z-20 flex items-center space-x-4">
+          {/* Weather pane — hidden when panels collapsed */}
+          {!allPanelsCollapsed && profileData && profileData.weather && (
             <div className="bg-black/40 backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-5 py-2 flex items-center space-x-3 pointer-events-auto transition-transform hover:scale-105">
               <span className="text-xl">
                 {profileData.weather.is_day ? "☀️" : "🌙"}
@@ -467,6 +470,7 @@ export default function Home() {
                 </div>
               </div>
             </div>
+          )}
 
             <button
               onClick={handleRecenter}
@@ -491,6 +495,21 @@ export default function Home() {
               </svg>
               <span className="text-xs font-bold text-cyan-300 group-hover:text-white transition-colors tracking-wider">
                 RECENTER
+              </span>
+            </button>
+
+            <button
+              onClick={() => setAllPanelsCollapsed(!allPanelsCollapsed)}
+              className="bg-black/40 hover:bg-cyan-500/20 border border-cyan-400/30 backdrop-blur-xl shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-4 py-3 flex items-center space-x-2 pointer-events-auto transition-all duration-300 group"
+              title={allPanelsCollapsed ? "Show all panels" : "Hide panels for immersive view"}
+            >
+              {allPanelsCollapsed ? (
+                <Maximize2 className="w-4 h-4 text-cyan-300 group-hover:text-white transition-colors" />
+              ) : (
+                <Minimize2 className="w-4 h-4 text-cyan-300 group-hover:text-white transition-colors" />
+              )}
+              <span className="text-xs font-bold text-cyan-300 group-hover:text-white transition-colors tracking-wider">
+                {allPanelsCollapsed ? "EXPAND" : "FOCUS"}
               </span>
             </button>
 
@@ -576,10 +595,10 @@ export default function Home() {
                 )}
               </>
             )}
-          </div>
-        )}
+        </div>
 
         {/* Floating UI Layer Left Side */}
+        {!allPanelsCollapsed && (
         <div className="absolute inset-y-6 left-6 w-[400px] md:w-[480px] z-10 flex flex-col pointer-events-none space-y-6">
           {/* Title and Search Header */}
           <div className="pointer-events-auto shrink-0 flex flex-col space-y-5">
@@ -638,8 +657,9 @@ export default function Home() {
             )}
           </div>
         </div>
+        )}
 
-        {isScanning ? (
+        {!allPanelsCollapsed && (isScanning ? (
           <div className="absolute inset-y-6 right-6 w-[400px] z-10 hidden lg:flex flex-col">
             <GridScanLoader />
           </div>
@@ -653,7 +673,7 @@ export default function Home() {
               profileData={profileData ?? undefined}
             />
           </div>
-        ) : null}
+        ) : null)}
       </div>
 
       {/* Tour Progress Bar (visible only during active tours) */}

@@ -164,6 +164,7 @@ export default function Map3D({
         viewer.camera.lookAtTransform(Matrix4.IDENTITY);
         viewer.scene.screenSpaceCameraController.enableInputs = true;
         // Use dynamic import of store to avoid circular deps
+        // eslint-disable-next-line @typescript-eslint/no-require-imports
         const { useSimulationStore } = require("@/store/useSimulationStore");
         useSimulationStore.getState().setCinematicFlight(null);
       }
