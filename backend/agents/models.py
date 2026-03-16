@@ -1,5 +1,5 @@
+
 from pydantic import BaseModel, Field
-from typing import List
 
 
 class CameraWaypoint(BaseModel):
@@ -15,7 +15,7 @@ class CameraWaypoint(BaseModel):
 
 
 class VisualizationPlan(BaseModel):
-    waypoints: List[CameraWaypoint]
+    waypoints: list[CameraWaypoint]
     total_duration: float = Field(..., description="Sum of all waypoint durations and pauses.")
 
 

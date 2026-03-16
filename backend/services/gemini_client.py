@@ -1,8 +1,15 @@
-import os
 import json
+import os
+
 from google import genai
 from google.genai import types
-from models import NeighborhoodProfile, ComparativeAnalysis, CinematicNarrative, CommuteAnalysis, IntentKeywords
+
+from models import (
+    CinematicNarrative,
+    ComparativeAnalysis,
+    IntentKeywords,
+    NeighborhoodProfile,
+)
 
 client = genai.Client(api_key=os.getenv("GEMINI_API_KEY", "YOUR_GEMINI_API_KEY"))
 MODEL_ID = "gemini-3.1-pro-preview"
@@ -33,15 +40,15 @@ def get_gemini_schema(model):
 
 async def generate_neighborhood_profile(prompt_payload: str) -> dict:
     """Generates a standard neighborhood profile using Gemini."""
-    
-    # Standard profile generation requires lower thinking level for rapid UI rendering 
+
+    # Standard profile generation requires lower thinking level for rapid UI rendering
     # (as mandated by GroundLevel architectural doc)
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=get_gemini_schema(NeighborhoodProfile),
         temperature=0.4
     )
-    
+
     # We dynamically attach thinking_level if supported in the kwargs or assume the SDK maps it.
     response = client.models.generate_content(
         model=MODEL_ID,
@@ -52,14 +59,14 @@ async def generate_neighborhood_profile(prompt_payload: str) -> dict:
 
 async def generate_comparative_analysis(prompt_payload: str) -> dict:
     """Generates complex comparative reasoning requiring high cognitive depth."""
-    
+
     # Compare mode requires 'high' thinking level
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=get_gemini_schema(ComparativeAnalysis),
         temperature=0.2
     )
-    
+
     response = client.models.generate_content(
         model=MODEL_ID,
         contents=prompt_payload,
@@ -69,13 +76,13 @@ async def generate_comparative_analysis(prompt_payload: str) -> dict:
 
 async def generate_cinematic_narrative(prompt_payload: str) -> dict:
     """Generates the Day in the Life narrative sequence."""
-    
+
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=get_gemini_schema(CinematicNarrative),
         temperature=0.7
     )
-    
+
     response = client.models.generate_content(
         model=MODEL_ID,
         contents=prompt_payload,
@@ -85,15 +92,15 @@ async def generate_cinematic_narrative(prompt_payload: str) -> dict:
 
 async def parse_contextual_intent(intent: str) -> dict:
     """Parses user free-text intent to extract keywords for Places API."""
-    
+
     config = types.GenerateContentConfig(
         response_mime_type="application/json",
         response_schema=get_gemini_schema(IntentKeywords),
         temperature=0.1
     )
-    
+
     prompt = f"Analyze the following user search intent and extract the most relevant keywords to be used in a Google Places API text search.\n\nUser Intent: '{intent}'"
-    
+
     response = client.models.generate_content(
         model=MODEL_ID,
         contents=prompt,

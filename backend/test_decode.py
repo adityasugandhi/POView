@@ -1,12 +1,13 @@
 import asyncio
-import os
-from dotenv import load_dotenv
+
 import polyline
+from dotenv import load_dotenv
 
 load_dotenv() # Load variables FIRST
 
 # Now import the service so os.getenv inside it captures the loaded variables
 from services.places_service import get_directions
+
 
 async def fetch_route(lat, lng, rec_lat, rec_lng):
     try:

@@ -1,7 +1,10 @@
 import asyncio
+
 from dotenv import load_dotenv
+
 load_dotenv()
 from services.places_service import contextual_places_search
+
 
 async def main():
     print("Testing...")

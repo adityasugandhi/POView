@@ -1,15 +1,14 @@
 """Tool wrappers that bridge the Live conversational agent to existing POView services."""
 
-import json
-from services.places_service import (
-    get_autocomplete_predictions,
-    get_places_details,
-    get_nearby_places,
-    contextual_places_search,
-)
+from agents.workflow import run_narrated_tour_workflow, run_neighborhood_workflow
 from services.gemini_client import parse_contextual_intent
+from services.places_service import (
+    contextual_places_search,
+    get_autocomplete_predictions,
+    get_nearby_places,
+    get_places_details,
+)
 from services.weather_service import fetch_weather_forecast
-from agents.workflow import run_neighborhood_workflow, run_narrated_tour_workflow
 
 
 async def search_neighborhood(place_query: str, intent: str = "general exploration") -> dict:

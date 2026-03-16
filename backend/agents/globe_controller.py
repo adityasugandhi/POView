@@ -1,17 +1,18 @@
+import asyncio
 import json
 import math
-import asyncio
-from typing import AsyncGenerator, List, Tuple
-from google.adk.agents import BaseAgent, LlmAgent
+from collections.abc import AsyncGenerator
+
+import polyline as polyline_lib
+from google.adk.agents import BaseAgent
 from google.adk.agents.invocation_context import InvocationContext
-from google.genai import types
 from google.adk.events import Event
 from google.adk.events.event_actions import EventActions
-from agents.models import CameraWaypoint, VisualizationPlan, ExtractedPOI
-from agents.json_utils import parse_json_from_text
-import polyline as polyline_lib
-from services.places_service import get_directions
+from google.genai import types
 
+from agents.json_utils import parse_json_from_text
+from agents.models import CameraWaypoint, ExtractedPOI, VisualizationPlan
+from services.places_service import get_directions
 
 EXTRACT_POIS_INSTRUCTION = """You are a coordinate extraction specialist. Given a narrative text about a neighborhood, extract all specifically named places/POIs that include coordinates.
 
@@ -38,8 +39,9 @@ class GlobeControllerAgent(BaseAgent):
         origin_lng = ctx.session.state.get("origin_lng", -74.0060)
 
         # 2. Extract POIs via internal LLM call
-        from google import genai
         import os
+
+        from google import genai
 
         client = genai.Client(api_key=os.getenv("GEMINI_API_KEY"))
 
@@ -203,8 +205,8 @@ class GlobeControllerAgent(BaseAgent):
         )
 
     def _build_transit_waypoints(
-        self, decoded: List[Tuple[float, float]], dest_name: str
-    ) -> List[CameraWaypoint]:
+        self, decoded: list[tuple[float, float]], dest_name: str
+    ) -> list[CameraWaypoint]:
         """Return intermediate road-following waypoints from a decoded polyline."""
         sampled = self._sample_road_points(decoded, max_points=3)
         if not sampled:
@@ -236,8 +238,8 @@ class GlobeControllerAgent(BaseAgent):
 
     @staticmethod
     def _sample_road_points(
-        decoded_path: List[Tuple[float, float]], max_points: int = 3
-    ) -> List[Tuple[float, float]]:
+        decoded_path: list[tuple[float, float]], max_points: int = 3
+    ) -> list[tuple[float, float]]:
         """Sample evenly-spaced intermediate points along a decoded polyline.
 
         Skips first and last points (those are the origin/destination).
@@ -291,7 +293,7 @@ class GlobeControllerAgent(BaseAgent):
         return (heading + 360) % 360
 
     @staticmethod
-    def _offset_point(lat: float, lng: float, bearing_deg: float, distance_m: float) -> Tuple[float, float]:
+    def _offset_point(lat: float, lng: float, bearing_deg: float, distance_m: float) -> tuple[float, float]:
         """Compute a new lat/lng by moving from a point along a bearing by distance in meters."""
         R = 6_371_000  # Earth radius in meters
         lat_r = math.radians(lat)

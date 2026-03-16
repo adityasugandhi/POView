@@ -1,40 +1,39 @@
-import os
-import json
 import asyncio
-import base64
+import json
 import traceback
+
 from dotenv import load_dotenv
 
 load_dotenv()
 
-from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
-from fastapi.responses import StreamingResponse
-from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
 import polyline
-from google.adk.runners import Runner
-from google.adk.agents.run_config import RunConfig, StreamingMode
+from fastapi import FastAPI, HTTPException, WebSocket, WebSocketDisconnect
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from google.adk.agents.live_request_queue import LiveRequestQueue
+from google.adk.agents.run_config import RunConfig, StreamingMode
+from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
+from pydantic import BaseModel
 
-from services.places_service import (
-    get_places_details,
-    get_nearby_places,
-    format_context_payload,
-    get_autocomplete_predictions,
-    contextual_places_search,
-    get_directions,
-    reverse_geocode,
-)
+from agents import run_narrated_tour_workflow, run_neighborhood_workflow
+from agents.live_agent import create_live_agent
 from services.gemini_client import (
     generate_neighborhood_profile,
     parse_contextual_intent,
 )
+from services.places_service import (
+    contextual_places_search,
+    format_context_payload,
+    get_autocomplete_predictions,
+    get_directions,
+    get_nearby_places,
+    get_places_details,
+    reverse_geocode,
+)
 from services.redis_cache import get_cached_profile, set_cached_profile
 from services.weather_service import fetch_weather_forecast
-from agents import run_neighborhood_workflow, run_narrated_tour_workflow
-from agents.live_agent import create_live_agent
 
 app = FastAPI(title="GroundLevel AI Platform")
 
