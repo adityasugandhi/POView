@@ -1,7 +1,10 @@
 import asyncio
+
 from dotenv import load_dotenv
+
 load_dotenv()
 from services.places_service import get_places_details
+
 
 async def main():
     print("Testing get_places_details with Autocomplete place_id...")

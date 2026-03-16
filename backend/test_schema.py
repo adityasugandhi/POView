@@ -1,8 +1,7 @@
-import os
-import sys
 from google import genai
 from google.genai import types
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
 
 class ScoreDetail(BaseModel):
     value: int
@@ -16,6 +15,7 @@ class Profile(BaseModel):
     scores: Scores
 
 from dotenv import load_dotenv
+
 load_dotenv()
 client = genai.Client()
 

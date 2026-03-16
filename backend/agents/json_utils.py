@@ -12,4 +12,3 @@ def parse_json_from_text(text: str) -> dict:
 
 
 # Re-export schema utilities from gemini_client for agent use
-from services.gemini_client import expand_refs, get_gemini_schema

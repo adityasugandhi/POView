@@ -7,9 +7,9 @@ a NarrationTimeline that temporally binds narration text to camera waypoints.
 """
 
 import json
-import math
-from google.adk.agents import LlmAgent
 import re
+
+from google.adk.agents import LlmAgent
 
 
 def strip_code_fences(text: str) -> str:

@@ -1,6 +1,7 @@
 import asyncio
-import os
+
 from dotenv import load_dotenv
+
 from services.places_service import get_directions
 
 load_dotenv()
