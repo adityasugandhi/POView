@@ -569,8 +569,12 @@ export default function Home() {
         <div className="absolute inset-y-6 left-6 w-[400px] md:w-[480px] z-10 flex flex-col pointer-events-none space-y-6">
           {/* Title and Search Header */}
           <div className="pointer-events-auto shrink-0 flex flex-col space-y-5">
-            <div className="px-2 pt-2">
-              <div className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 flex items-center space-x-3 w-fit">
+            <div className="px-2 pt-2 flex items-center space-x-2">
+              <button
+                onClick={() => { setHasStarted(false); setIsTransitioning(false); }}
+                className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl px-5 py-3 flex items-center space-x-3 w-fit cursor-pointer hover:border-white/20 hover:bg-black/50 transition-all duration-300"
+                title="Back to home"
+              >
                 <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="w-6 h-6 text-cyan-400 shrink-0"><path d="m12 3-1.912 5.813a2 2 0 0 1-1.275 1.275L3 12l5.813 1.912a2 2 0 0 1 1.275 1.275L12 21l1.912-5.813a2 2 0 0 1 1.275-1.275L21 12l-5.813-1.912a2 2 0 0 1-1.275-1.275L12 3Z"/><path d="M5 3v4"/><path d="M19 17v4"/><path d="M3 5h4"/><path d="M17 19h4"/></svg>
                 <div className="flex flex-col">
                   <h1 className="text-2xl font-extrabold text-white tracking-wider drop-shadow-xl leading-none">
@@ -580,7 +584,14 @@ export default function Home() {
                     Autonomous Urban Intelligence
                   </p>
                 </div>
-              </div>
+              </button>
+              <button
+                onClick={() => { setHasStarted(false); setIsTransitioning(false); }}
+                className="bg-black/40 backdrop-blur-2xl border border-white/10 rounded-2xl p-3 flex items-center justify-center hover:border-white/20 hover:bg-black/50 transition-all duration-300 group"
+                title="Back to home"
+              >
+                <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" className="text-white/50 group-hover:text-cyan-400 transition-colors"><path d="m3 9 9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg>
+              </button>
             </div>
             <SearchBox
               onSearch={handleSearch}

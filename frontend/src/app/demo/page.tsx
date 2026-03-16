@@ -478,7 +478,7 @@ export default function DemoPage() {
 
         <FadeIn delay={0.1}>
           <h1 className="text-4xl md:text-6xl lg:text-7xl font-extrabold tracking-tight leading-tight mb-6">
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 via-blue-500 to-purple-500">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-blue-600">
               Multi-Agent
             </span>{" "}
             Urban Intelligence
@@ -487,9 +487,9 @@ export default function DemoPage() {
 
         <FadeIn delay={0.2}>
           <p className="max-w-3xl text-lg md:text-xl text-white/50 font-light leading-relaxed mb-10">
-            A 3-agent ADK pipeline that transforms any location into a narrated,
-            scored, 3D drone-flyover experience — powered by 5 Gemini models,
-            real-time voice interaction, and Google 3D Map Tiles.
+            An Agent ADK pipeline that transforms any location into a narrated,
+            scored, 3D drone-flyover experience — powered by Gemini models,
+            the Gemini Live API for real-time voice interaction, and Google 3D Map Tiles.
           </p>
         </FadeIn>
 

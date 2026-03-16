@@ -82,6 +82,9 @@ Rules for <SPATIAL_CONTEXT>:
 3. USE this information naturally when the user asks "What's nearby?" or "What am I looking at?"
 4. When answering location questions, reference SPECIFIC visible POIs by name and rating.
 5. If a user asks about the area during a tour, use both the narration context AND spatial context.
+6. When calling ANY tool that takes current_lat/current_lng, ALWAYS pass the latest
+   camera coordinates from <SPATIAL_CONTEXT>. This ensures searches are scoped to
+   the area the user is currently viewing.
 
 === VISUAL AWARENESS PROTOCOL ===
 

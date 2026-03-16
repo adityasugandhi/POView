@@ -27,15 +27,17 @@ from services.narration_generator import generate_place_narrations
 from agents.narration_planner import compute_trajectory_timestamps
 
 
-async def fly_to_location(place_query: str) -> dict:
+async def fly_to_location(place_query: str, current_lat: float | None = None, current_lng: float | None = None) -> dict:
     """Fly the camera to a location on the 3D globe AND discover nearby points of
     interest. The camera moves while POI data loads in parallel, so 3D pins and
     details appear by the time the fly-by completes.
 
     Args:
         place_query: The name of the place (e.g. "Manhattan", "Times Square", "Tokyo").
+        current_lat: Optional latitude of the user's current viewport center for location-biased search.
+        current_lng: Optional longitude of the user's current viewport center for location-biased search.
     """
-    predictions = await get_autocomplete_predictions(place_query)
+    predictions = await get_autocomplete_predictions(place_query, lat=current_lat, lng=current_lng)
     if not predictions:
         return {"error": f"Could not find '{place_query}'."}
 
@@ -86,7 +88,7 @@ async def fly_to_location(place_query: str) -> dict:
     }
 
 
-async def search_neighborhood(place_query: str, intent: str = "general exploration") -> dict:
+async def search_neighborhood(place_query: str, intent: str = "general exploration", current_lat: float | None = None, current_lng: float | None = None) -> dict:
     """Deep neighborhood analysis with profile data, scores, highlights, and drone
     tour waypoints. This is SLOW (10-20 seconds). Only call this when the user
     explicitly asks for analysis, details, or a tour — NOT for simple navigation.
@@ -96,9 +98,11 @@ async def search_neighborhood(place_query: str, intent: str = "general explorati
                      "Times Square", "coffee shops near SoHo").
         intent: What the user wants to explore (e.g. "nightlife", "family activities",
                 "best coffee spots"). Defaults to general exploration.
+        current_lat: Optional latitude of the user's current viewport center for location-biased search.
+        current_lng: Optional longitude of the user's current viewport center for location-biased search.
     """
     # 1. Autocomplete to resolve a place_id
-    predictions = await get_autocomplete_predictions(place_query)
+    predictions = await get_autocomplete_predictions(place_query, lat=current_lat, lng=current_lng)
     if not predictions:
         return {"error": f"Could not find a location matching '{place_query}'. Try a more specific name."}
 
@@ -133,7 +137,7 @@ async def search_neighborhood(place_query: str, intent: str = "general explorati
     }
 
 
-async def get_recommendations(place_query: str, intent: str, radius: float = 0.4) -> dict:
+async def get_recommendations(place_query: str, intent: str, radius: float = 0.4, current_lat: float | None = None, current_lng: float | None = None) -> dict:
     """Get specific place recommendations near a location. Use this when the user
     asks for recommendations like restaurants, cafes, parks, etc.
 
@@ -141,9 +145,11 @@ async def get_recommendations(place_query: str, intent: str, radius: float = 0.4
         place_query: The location name to search near (e.g. "Williamsburg Brooklyn").
         intent: What type of places to find (e.g. "best pizza", "quiet parks", "live music venues").
         radius: Search radius in miles (0.1 to 1.0). Default 0.4 miles.
+        current_lat: Optional latitude of the user's current viewport center for location-biased search.
+        current_lng: Optional longitude of the user's current viewport center for location-biased search.
     """
     # 1. Resolve location
-    predictions = await get_autocomplete_predictions(place_query)
+    predictions = await get_autocomplete_predictions(place_query, lat=current_lat, lng=current_lng)
     if not predictions:
         return {"error": f"Could not find '{place_query}'."}
 
@@ -199,7 +205,7 @@ async def start_drone_tour(place_query: str) -> dict:
     }
 
 
-async def start_narrated_tour(place_query: str, intent: str = "general exploration") -> dict:
+async def start_narrated_tour(place_query: str, intent: str = "general exploration", current_lat: float | None = None, current_lng: float | None = None) -> dict:
     """Start a synchronized narrated drone tour with voice narration aligned to camera
     movements. Call this when the user wants a guided tour, narrated flyover, or
     immersive exploration of a neighborhood.
@@ -207,9 +213,11 @@ async def start_narrated_tour(place_query: str, intent: str = "general explorati
     Args:
         place_query: The location to tour (e.g. "Williamsburg Brooklyn").
         intent: What aspect to focus on (e.g. "nightlife", "food scene", "family-friendly").
+        current_lat: Optional latitude of the user's current viewport center for location-biased search.
+        current_lng: Optional longitude of the user's current viewport center for location-biased search.
     """
     # 1. Resolve location
-    predictions = await get_autocomplete_predictions(place_query)
+    predictions = await get_autocomplete_predictions(place_query, lat=current_lat, lng=current_lng)
     if not predictions:
         return {"error": f"Could not find a location matching '{place_query}'."}
 
@@ -239,7 +247,7 @@ async def start_narrated_tour(place_query: str, intent: str = "general explorati
     }
 
 
-async def tour_recommendations(place_query: str, intent: str, radius: float = 0.4) -> dict:
+async def tour_recommendations(place_query: str, intent: str, radius: float = 0.4, current_lat: float | None = None, current_lng: float | None = None) -> dict:
     """Find recommended places near a location AND start a narrated drone tour
     visiting each one. Use this when the user wants to both discover places AND
     take a guided flyover — e.g. "show me the best cafes near Times Square
@@ -249,10 +257,12 @@ async def tour_recommendations(place_query: str, intent: str, radius: float = 0.
         place_query: The area to search in (e.g. "Times Square Manhattan").
         intent: What type of places to find and tour (e.g. "best cafes", "rooftop bars").
         radius: Search radius in miles (0.1 to 1.0). Default 0.4 miles.
+        current_lat: Optional latitude of the user's current viewport center for location-biased search.
+        current_lng: Optional longitude of the user's current viewport center for location-biased search.
     """
     # 1. Resolve location and parse intent in parallel
     predictions, intent_parsed_result = await asyncio.gather(
-        get_autocomplete_predictions(place_query),
+        get_autocomplete_predictions(place_query, lat=current_lat, lng=current_lng),
         parse_contextual_intent(intent),
         return_exceptions=True,
     )
