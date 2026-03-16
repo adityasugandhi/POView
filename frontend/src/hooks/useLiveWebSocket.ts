@@ -1,4 +1,5 @@
 import { useRef, useState, useCallback } from "react";
+import { useSimulationStore } from "@/store/useSimulationStore";
 
 export interface TranscriptLine {
   role: "user" | "agent";
@@ -78,12 +79,52 @@ export function useLiveWebSocket({
                 break;
               case "tool_result":
                 onToolResult(msg.tool, msg.data);
+                if (msg.tool) {
+                  // LAYER 1: Complete analysis when tool returns
+                  useSimulationStore.getState().completeAnalysis();
+                }
                 break;
               case "state":
-                onStateChange(msg.state);
-                if (msg.tool && msg.args) {
-                  onToolCall?.(msg.tool, msg.args);
+                if (msg.state === "pipeline_stage") {
+                  onStateChange(msg.stage);
+                  useSimulationStore.getState().updateAnalysisStage(msg.stage, msg.progress || 50);
+                } else {
+                  onStateChange(msg.state);
+                  if (msg.tool && msg.args) {
+                    onToolCall?.(msg.tool, msg.args);
+                  }
+                  
+                  // LAYER 1: INSTANT SKELETON UI TRIGGER
+                  if (msg.state === "processing") {
+                    const toolName = msg.tool || msg.tool_name;
+                    if (toolName) {
+                      useSimulationStore.getState().startAnalysis(toolName);
+                      
+                      if (toolName === "search_neighborhood" || toolName === "start_narrated_tour") {
+                        useSimulationStore.setState({ insightPanelVisible: true });
+                      }
+                      if (toolName === "tour_recommendations" || toolName === "get_recommendations") {
+                        useSimulationStore.setState({ 
+                          insightPanelVisible: true,
+                          recommendationsPanelVisible: true 
+                        });
+                      }
+                    }
+                  }
                 }
+                break;
+              case "pipeline_partial":
+                // LAYER 2: PROGRESSIVE STREAMING UPDATES
+                if (msg.partial === "location" && msg.data) {
+                  useSimulationStore.getState().setLocation(msg.data.location);
+                  useSimulationStore.getState().setViewport(msg.data.viewport);
+                } else if (msg.partial === "weather" && msg.data) {
+                  useSimulationStore.getState().setWeatherData(msg.data.weather);
+                }
+                break;
+              case "pipeline_complete":
+                onToolResult(msg.workflow_type, msg.data);
+                useSimulationStore.getState().completeAnalysis();
                 break;
               case "error":
                 onError(msg.message);

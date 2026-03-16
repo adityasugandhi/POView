@@ -10,8 +10,19 @@ from services.places_service import (
 )
 from services.gemini_client import parse_contextual_intent
 from services.weather_service import fetch_weather_forecast
-from agents.workflow import run_neighborhood_workflow, run_narrated_tour_workflow
+from services.streaming_workflow import run_streaming_workflow
 from agents.waypoint_utils import compute_waypoints_for_places
+import contextvars
+
+# Context variable used to track the current active session in live tools
+current_session_id = contextvars.ContextVar("current_session_id", default=None)
+active_ws_senders = {}
+
+def _get_ws_sender():
+    """Retrieve the active WebSocket sender based on the current context."""
+    sess_id = current_session_id.get()
+    sender = active_ws_senders.get(sess_id)
+    return sender if sender else lambda msg: None
 from services.narration_generator import generate_place_narrations
 from agents.narration_planner import compute_trajectory_timestamps
 
@@ -97,45 +108,28 @@ async def search_neighborhood(place_query: str, intent: str = "general explorati
     if not place_id:
         return {"error": "Could not resolve place ID from autocomplete."}
 
-    # 2. Get full place details
+    # 2. Get full place details to fetch place_name quickly
     location_details = await get_places_details(place_id)
-    if not location_details or not location_details.get("geometry"):
-        return {"error": "Could not retrieve location details."}
+    if not location_details or not location_details.get("name"):
+        place_name = place_query
+    else:
+        place_name = location_details.get("name")
 
-    lat = location_details["geometry"].get("location", {}).get("lat")
-    lng = location_details["geometry"].get("location", {}).get("lng")
-    if not lat or not lng:
-        return {"error": "Location geometry is invalid."}
-
-    # 3. Get nearby places and weather in parallel
-    nearby_places, weather = await asyncio.gather(
-        get_nearby_places(lat, lng),
-        fetch_weather_forecast(lat, lng),
+    # 3. Launch the streaming pipeline in the background
+    asyncio.create_task(
+        run_streaming_workflow(
+            place_id=place_id,
+            intent=intent,
+            send_to_frontend=_get_ws_sender(),
+            workflow_type="neighborhood"
+        )
     )
 
-    # 4. Run the full agent workflow
-    try:
-        result = await run_neighborhood_workflow(
-            place_id=place_id,
-            location_details=location_details,
-            nearby_places=nearby_places,
-            weather=weather,
-            intent=intent,
-        )
-    except Exception as e:
-        return {"error": f"Neighborhood analysis failed: {str(e)}"}
-
-    profile_data = result.get("profile_data", {})
-    visualization_plan = result.get("visualization_plan", {})
-
+    # 4. Return lightweight ack immediately (< 1s total tool time)
     return {
-        "place_id": place_id,
-        "place_name": location_details.get("name", place_query),
-        "location": {"lat": lat, "lng": lng},
-        "viewport": location_details.get("geometry", {}).get("viewport"),
-        "weather": weather,
-        "profile": profile_data,
-        "visualization_plan": visualization_plan,
+        "status": "analysis_started",
+        "place_name": place_name,
+        "message": f"Analysis of {place_name} is underway. Results will stream progressively."
     }
 
 
@@ -223,41 +217,25 @@ async def start_narrated_tour(place_query: str, intent: str = "general explorati
     if not place_id:
         return {"error": "Could not resolve place ID."}
 
+    # 2. Get location details quickly
     location_details = await get_places_details(place_id)
-    if not location_details or not location_details.get("geometry"):
-        return {"error": "Could not retrieve location details."}
+    place_name = location_details.get("name") if location_details else place_query
 
-    lat = location_details["geometry"]["location"]["lat"]
-    lng = location_details["geometry"]["location"]["lng"]
-
-    # 2. Get nearby places and weather
-    nearby_places, weather = await asyncio.gather(
-        get_nearby_places(lat, lng),
-        fetch_weather_forecast(lat, lng),
+    # 3. Launch the streaming pipeline in the background
+    asyncio.create_task(
+        run_streaming_workflow(
+            place_id=place_id,
+            intent=intent,
+            send_to_frontend=_get_ws_sender(),
+            workflow_type="narrated_tour"
+        )
     )
 
-    # 3. Run the enhanced 4-agent narrated tour pipeline
-    try:
-        result = await run_narrated_tour_workflow(
-            place_id=place_id,
-            location_details=location_details,
-            nearby_places=nearby_places,
-            weather=weather,
-            intent=intent,
-        )
-    except Exception as e:
-        return {"error": f"Narrated tour generation failed: {str(e)}"}
-
     return {
-        "action": "start_narrated_tour",
-        "place_id": place_id,
-        "place_name": location_details.get("name", place_query),
-        "location": {"lat": lat, "lng": lng},
-        "viewport": location_details.get("geometry", {}).get("viewport"),
-        "weather": weather,
-        "profile": result.get("profile_data", {}),
-        "narration_timeline": result.get("narration_timeline", {}),
-        "visualization_plan": result.get("visualization_plan", {}),
+        "status": "analysis_started",
+        "place_name": place_name,
+        "message": f"Planning narrated tour of {place_name}. Results will stream progressively.",
+        "action": "start_narrated_tour"
     }
 
 

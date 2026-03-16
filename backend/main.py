@@ -36,6 +36,7 @@ from services.redis_cache import get_cached_profile, set_cached_profile
 from services.weather_service import fetch_weather_forecast
 from agents import run_neighborhood_workflow, run_narrated_tour_workflow
 from agents.live_agent import create_live_agent
+from agents.live_tools import current_session_id, active_ws_senders
 
 app = FastAPI(title="GroundLevel AI Platform")
 
@@ -438,6 +439,13 @@ async def live_websocket(websocket: WebSocket, session_id: str):
         output_audio_transcription=types.AudioTranscriptionConfig(),
     )
 
+    # Store the WS sender in the global map for this session
+    async def ws_sender(msg: dict):
+        if websocket.client_state.value == 1: # Connected
+            await websocket.send_text(json.dumps(msg))
+            
+    active_ws_senders[session.id] = ws_sender
+
     live_queue = LiveRequestQueue()
     _last_screen_capture_time = 0.0
 
@@ -572,6 +580,8 @@ async def live_websocket(websocket: WebSocket, session_id: str):
 
     async def downstream_task():
         """Reads events from run_live and sends audio/text back over WebSocket."""
+        # Set the contextvar for live tools to find the ws sender
+        token = current_session_id.set(session.id)
         try:
             async for event in live_runner.run_live(
                 user_id=user_id,
@@ -740,6 +750,8 @@ async def live_websocket(websocket: WebSocket, session_id: str):
                     )
                 except Exception:
                     pass
+        finally:
+            current_session_id.reset(token)
 
     # Run upstream and downstream concurrently
     upstream = asyncio.create_task(upstream_task())
@@ -750,6 +762,8 @@ async def live_websocket(websocket: WebSocket, session_id: str):
     finally:
         upstream.cancel()
         downstream.cancel()
+        # Clean up the ws sender
+        active_ws_senders.pop(session.id, None)
         try:
             await websocket.close()
         except Exception:
