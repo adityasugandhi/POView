@@ -9,7 +9,7 @@ def create_formatter_agent() -> LlmAgent:
 
     return LlmAgent(
         name="FormatterAgent",
-        model="gemini-2.5-flash",
+        model="gemini-3.1-pro-preview",
         instruction="""You are a strict JSON formatter. You will receive two pieces of data from the session state:
 
 1. `raw_narrative` — A rich text narrative about a neighborhood

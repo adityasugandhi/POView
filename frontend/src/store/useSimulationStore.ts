@@ -44,6 +44,14 @@ export interface SimulationState {
   searchQuery: string;
   weatherState: string;
   weatherData: WeatherData | null;
+  // Analysis pipeline state
+  analysisState: {
+    isAnalyzing: boolean;
+    activeTool: string | null;
+    currentStage: string | null;
+    stageProgress: number;
+    startedAt: number | null;
+  };
   liveApiConnectionStatus:
     | "disconnected"
     | "connecting"
@@ -136,6 +144,11 @@ export interface SimulationState {
   setTourStartAudioTime: (time: number) => void;
   clearTour: () => void;
 
+  // Analysis actions
+  startAnalysis: (toolName: string) => void;
+  updateAnalysisStage: (stage: string, progress: number) => void;
+  completeAnalysis: () => void;
+
   // Compound actions
   clearSearch: () => void;
   getSimulationSnapshot: () => {
@@ -177,6 +190,13 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
   searchQuery: "",
   weatherState: "clear",
   weatherData: null,
+  analysisState: {
+    isAnalyzing: false,
+    activeTool: null,
+    currentStage: null,
+    stageProgress: 0,
+    startedAt: null,
+  },
   liveApiConnectionStatus: "disconnected",
   tourStatus: "idle",
 
@@ -291,6 +311,39 @@ export const useSimulationStore = create<SimulationState>((set, get) => ({
       tourStatus: "idle",
       tourStartAudioTime: 0,
     }),
+
+  // ── Analysis actions ──────────────────────────────────────────────────
+
+  startAnalysis: (toolName) =>
+    set({
+      analysisState: {
+        isAnalyzing: true,
+        activeTool: toolName,
+        currentStage: "Resolving location...",
+        stageProgress: 10,
+        startedAt: performance.now(),
+      },
+      profileData: null, // Clear old data
+    }),
+
+  updateAnalysisStage: (stage, progress) =>
+    set((s) => ({
+      analysisState: {
+        ...s.analysisState,
+        currentStage: stage,
+        stageProgress: progress,
+      },
+    })),
+
+  completeAnalysis: () =>
+    set((s) => ({
+      analysisState: {
+        ...s.analysisState,
+        isAnalyzing: false,
+        currentStage: "Complete",
+        stageProgress: 100,
+      },
+    })),
 
   // ── Compound actions ──────────────────────────────────────────────────
 

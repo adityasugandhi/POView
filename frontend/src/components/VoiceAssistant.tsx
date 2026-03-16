@@ -1,6 +1,12 @@
 "use client";
 import React, { useState, useCallback, useEffect, useRef } from "react";
-import { Mic, MicOff } from "lucide-react";
+import { Mic, MicOff, ChevronDown } from "lucide-react";
+
+interface LiveModel {
+  id: string;
+  label: string;
+  vision: boolean;
+}
 import { useAudioRecorder } from "@/hooks/useAudioRecorder";
 import { useAudioPlayer } from "@/hooks/useAudioPlayer";
 import { useLiveWebSocket, TranscriptLine } from "@/hooks/useLiveWebSocket";
@@ -51,7 +57,7 @@ export interface VoiceAssistantProps {
   }) => void;
 }
 
-type VoiceState = "idle" | "listening" | "processing" | "speaking";
+type VoiceState = "idle" | "listening" | "processing" | "speaking" | "muted";
 
 export default function VoiceAssistant({
   onProfileData,
@@ -68,6 +74,23 @@ export default function VoiceAssistant({
   const fadeTimerRef = useRef<NodeJS.Timeout | null>(null);
   const transcriptEndRef = useRef<HTMLDivElement>(null);
   const flightCaptureRef = useRef<ReturnType<typeof setInterval> | null>(null);
+
+  // --- Dev model selector ---
+  const [availableModels, setAvailableModels] = useState<LiveModel[]>([]);
+  const [selectedModel, setSelectedModel] = useState<string>("");
+  const [modelDropdownOpen, setModelDropdownOpen] = useState(false);
+
+  useEffect(() => {
+    fetch("/api/live_models")
+      .then((r) => r.json())
+      .then((data) => {
+        if (data.models?.length) {
+          setAvailableModels(data.models);
+          setSelectedModel(data.default || data.models[0].id);
+        }
+      })
+      .catch(() => {}); // non-critical — falls back to backend default
+  }, []);
 
   // --- Audio player ---
   const {
@@ -175,12 +198,13 @@ export default function VoiceAssistant({
             }
           }, 20000);
           break;
+        case "neighborhood":
         case "search_neighborhood":
           useSimulationStore.getState().setIsScanning(false);
-          if (d.profile && d.place_id) {
+          if (d.profile_data || d.profile) {
             onProfileData?.(
-              d.profile as NeighborhoodProfile,
-              d.place_id as string,
+              (d.profile_data || d.profile) as NeighborhoodProfile,
+              (d.place_id as string) || lastFlyToPlaceRef.current || "",
             );
           }
           if (d.location) {
@@ -208,10 +232,15 @@ export default function VoiceAssistant({
         case "start_drone_tour":
           onDroneTourStart?.();
           break;
+        case "narrated_tour":
         case "start_narrated_tour":
-          onNarratedTourResult?.(d);
-          break;
         case "tour_recommendations":
+          if (d.profile_data || d.profile) {
+            onProfileData?.(
+              (d.profile_data || d.profile) as NeighborhoodProfile,
+              (d.place_id as string) || lastFlyToPlaceRef.current || "",
+            );
+          }
           if (d.recommendations) {
             onRecommendations?.(d.recommendations as Recommendation[]);
           }
@@ -364,6 +393,9 @@ export default function VoiceAssistant({
     start: startMic,
     stop: stopMic,
     isRecording,
+    isMuted,
+    mute,
+    unmute,
   } = useAudioRecorder({
     onChunk: handleChunk,
   });
@@ -376,21 +408,27 @@ export default function VoiceAssistant({
     if (wasPlaying && !isPlaying) {
       // Audio just stopped — schedule state update outside effect
       queueMicrotask(() => {
-        setVoiceState(isRecording ? "listening" : "idle");
+        if (!isConnected) {
+          setVoiceState("idle");
+        } else if (isMuted) {
+          setVoiceState("muted");
+        } else {
+          setVoiceState(isRecording ? "listening" : "idle");
+        }
         if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
         fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 8000);
       });
     }
-  }, [isPlaying, isRecording]);
+  }, [isPlaying, isRecording, isConnected, isMuted]);
 
-  // --- Toggle mic ---
+  // --- Toggle mic (Mute / Unmute) ---
   const handleToggle = useCallback(async () => {
     if (!isConnected) {
       try {
         await unlockSharedAudioContext();
         const sessionId = crypto.randomUUID();
         console.log("[Voice] connecting WS…", sessionId);
-        await connect(sessionId);
+        await connect(sessionId, selectedModel || undefined);
         console.log("[Voice] WS open, starting mic…");
         await startMic();
         console.log("[Voice] mic started");
@@ -399,17 +437,31 @@ export default function VoiceAssistant({
         if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
         useSimulationStore.getState().setIsVoiceSessionActive(true);
 
-        // Auto-greeting with current location context
+        // Always fire an immediate greeting so the user hears the system is alive.
+        // A small delay lets the Gemini session fully initialize before receiving text.
+        setTimeout(() => {
+          sendText(
+            "The user just activated the voice assistant. " +
+            "Greet them warmly and concisely in 1-2 sentences. " +
+            "Let them know they can ask you to fly anywhere, explore a neighborhood, or find recommendations. " +
+            "Do NOT ask a question — just welcome them and tell them you're ready."
+          );
+        }, 600);
+
+        // Async location enrichment — sends a silent context update once geocode resolves.
+        // Kept separate so the greeting never blocks on network.
         const storeState = useSimulationStore.getState();
         const loc = storeState.location || storeState.defaultLocation;
         if (loc) {
           fetch(`/api/reverse_geocode?lat=${loc.lat}&lng=${loc.lng}`)
             .then((r) => r.json())
             .then((data) => {
-              const neighborhood = data.neighborhood || data.formatted_address || "this area";
-              sendText(`<LOCATION_CONTEXT>User is viewing ${neighborhood}. Greet them naturally referencing this location.</LOCATION_CONTEXT>`);
+              const neighborhood = data.neighborhood || data.formatted_address || "";
+              if (neighborhood) {
+                sendText(`<LOCATION_CONTEXT>User is currently viewing ${neighborhood} on the 3D globe.</LOCATION_CONTEXT>`);
+              }
             })
-            .catch(() => {}); // silent fail — greeting is best-effort
+            .catch(() => {});
         }
       } catch (err) {
         console.error("[Voice] toggle failed:", err);
@@ -418,17 +470,28 @@ export default function VoiceAssistant({
         setVoiceState("idle");
       }
     } else {
-      // Disconnect everything
-      stopMic();
-      stopPlayback();
-      stopFlightCaptures();
-      disconnect();
-      setVoiceState("idle");
-      useSimulationStore.getState().setIsVoiceSessionActive(false);
-      if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
-      fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 8000);
+      // If connected, toggle mute state instead of disconnecting
+      if (isMuted) {
+        unmute();
+        setVoiceState(isPlaying ? "speaking" : "listening");
+      } else {
+        mute();
+        setVoiceState(isPlaying ? "speaking" : "muted");
+      }
     }
-  }, [isConnected, connect, startMic, stopMic, stopPlayback, stopFlightCaptures, disconnect]);
+  }, [isConnected, isMuted, isPlaying, connect, startMic, stopMic, disconnect, mute, unmute, sendText, selectedModel]);
+
+  // --- Explicit Disconnect ---
+  const handleEndSession = useCallback(() => {
+    stopMic();
+    stopPlayback();
+    stopFlightCaptures();
+    disconnect();
+    setVoiceState("idle");
+    useSimulationStore.getState().setIsVoiceSessionActive(false);
+    if (fadeTimerRef.current) clearTimeout(fadeTimerRef.current);
+    fadeTimerRef.current = setTimeout(() => setPanelVisible(false), 3000);
+  }, [stopMic, stopPlayback, stopFlightCaptures, disconnect]);
 
   // Cleanup on unmount
   useEffect(() => {
@@ -455,6 +518,7 @@ export default function VoiceAssistant({
   // --- Button style by state ---
   const buttonStyle = {
     idle: "bg-black/40 hover:bg-white/10 border-white/10 text-white/60 hover:text-white",
+    muted: "bg-red-500/20 border-red-400/50 text-red-300",
     listening: "bg-cyan-500/20 border-cyan-400/50 text-cyan-300 animate-pulse",
     processing:
       "bg-purple-500/20 border-purple-400/50 text-purple-300 animate-pulse",
@@ -518,27 +582,97 @@ export default function VoiceAssistant({
         </div>
       )}
 
-      {/* Mic toggle button — centered at bottom */}
-      <button
-        onClick={handleToggle}
-        className={`backdrop-blur-xl shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-4 py-3 flex items-center space-x-2 pointer-events-auto transition-all duration-300 border ${buttonStyle}`}
-        title={isConnected ? "Stop voice assistant" : "Start voice assistant"}
-      >
-        {isConnected ? (
-          <Mic className="w-4 h-4" />
-        ) : (
-          <MicOff className="w-4 h-4" />
+      {/* Dev model selector — only shown when not connected */}
+      {!isConnected && availableModels.length > 0 && (
+        <div className="relative pointer-events-auto mb-2">
+          <button
+            onClick={() => setModelDropdownOpen((o) => !o)}
+            className="flex items-center space-x-2 bg-black/40 backdrop-blur-xl border border-white/10 rounded-full px-3 py-1.5 text-[10px] font-bold text-white/40 hover:text-white/70 hover:border-white/20 transition-all duration-200 tracking-widest uppercase"
+          >
+            <span className="text-yellow-400/70">DEV</span>
+            <span className="max-w-[200px] truncate">
+              {availableModels.find((m) => m.id === selectedModel)?.label ?? selectedModel}
+            </span>
+            <ChevronDown className={`w-3 h-3 transition-transform duration-200 ${modelDropdownOpen ? "rotate-180" : ""}`} />
+          </button>
+
+          {modelDropdownOpen && (
+            <div className="absolute bottom-full mb-2 left-0 min-w-[280px] bg-black/90 backdrop-blur-2xl border border-white/15 rounded-xl overflow-hidden shadow-[0_8px_32px_0_rgba(0,0,0,0.6)] z-30">
+              <div className="px-3 pt-2 pb-1 text-[9px] font-bold text-yellow-400/60 tracking-widest uppercase border-b border-white/10">
+                Dev — Gemini Live Model
+              </div>
+              {availableModels.map((m) => (
+                <button
+                  key={m.id}
+                  onClick={() => { setSelectedModel(m.id); setModelDropdownOpen(false); }}
+                  className={`w-full text-left px-3 py-2.5 text-xs transition-colors duration-150 flex items-start space-x-2 ${
+                    selectedModel === m.id
+                      ? "bg-cyan-500/15 text-cyan-300"
+                      : "text-white/60 hover:bg-white/5 hover:text-white"
+                  }`}
+                >
+                  <span className={`mt-0.5 w-1.5 h-1.5 rounded-full shrink-0 ${m.vision ? "bg-green-400" : "bg-orange-400"}`} />
+                  <span className="leading-tight">{m.label}</span>
+                </button>
+              ))}
+              <div className="px-3 py-2 border-t border-white/10 flex items-center space-x-3 text-[9px] text-white/30">
+                <span className="flex items-center space-x-1"><span className="w-1.5 h-1.5 rounded-full bg-green-400 inline-block" /><span>audio + vision</span></span>
+                <span className="flex items-center space-x-1"><span className="w-1.5 h-1.5 rounded-full bg-orange-400 inline-block" /><span>audio only</span></span>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Control Buttons — centered at bottom */}
+      <div className="flex items-center space-x-3 pointer-events-auto">
+        <button
+          onClick={handleToggle}
+          className={`backdrop-blur-xl shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-4 py-3 flex items-center space-x-2 transition-all duration-300 border ${buttonStyle}`}
+          title={!isConnected ? "Start voice assistant" : isMuted ? "Unmute mic" : "Mute mic"}
+        >
+          {isConnected && !isMuted ? (
+            <Mic className="w-4 h-4" />
+          ) : (
+            <MicOff className="w-4 h-4" />
+          )}
+          <span className="text-xs font-bold tracking-wider uppercase">
+            {voiceState === "idle"
+              ? "VOICE"
+              : voiceState === "listening"
+                ? "LISTENING"
+                : voiceState === "muted"
+                  ? "MUTED"
+                  : voiceState === "processing"
+                    ? "THINKING"
+                    : "SPEAKING"}
+          </span>
+        </button>
+
+        {isConnected && (
+          <button
+            onClick={handleEndSession}
+            className="backdrop-blur-xl bg-black/40 hover:bg-red-500/20 border border-white/10 hover:border-red-400/50 text-white/60 hover:text-red-300 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-full px-3 py-3 transition-all duration-300 group"
+            title="End Session"
+          >
+            <svg
+              xmlns="http://www.w3.org/2000/svg"
+              width="16"
+              height="16"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="group-hover:scale-110 transition-transform"
+            >
+              <line x1="18" y1="6" x2="6" y2="18"></line>
+              <line x1="6" y1="6" x2="18" y2="18"></line>
+            </svg>
+          </button>
         )}
-        <span className="text-xs font-bold tracking-wider uppercase">
-          {voiceState === "idle"
-            ? "VOICE"
-            : voiceState === "listening"
-              ? "LISTENING"
-              : voiceState === "processing"
-                ? "THINKING"
-                : "SPEAKING"}
-        </span>
-      </button>
+      </div>
     </>
   );
 }

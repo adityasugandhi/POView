@@ -1,6 +1,8 @@
 import React from "react";
 import { Star, MapPin } from "lucide-react";
 import { Recommendation } from "./RecommendationPin3D";
+import { useSimulationStore } from "@/store/useSimulationStore";
+import { AnalysisSkeleton } from "./AnalysisSkeleton";
 
 interface RecommendationsPanelProps {
   recommendations: Recommendation[];
@@ -14,6 +16,14 @@ export default function RecommendationsPanel({
   onSelectRecommendation,
   profileData,
 }: RecommendationsPanelProps) {
+  const { isAnalyzing, currentStage } = useSimulationStore(
+    (state) => state.analysisState
+  );
+
+  if (isAnalyzing && (!recommendations || recommendations.length === 0)) {
+    return <AnalysisSkeleton stage={currentStage} />;
+  }
+
   if (!recommendations || recommendations.length === 0) return null;
 
   return (

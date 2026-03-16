@@ -15,6 +15,8 @@ import type {
   ScoreDetail,
   Highlight,
 } from "@/types/simulation";
+import { useSimulationStore } from "@/store/useSimulationStore";
+import { AnalysisSkeleton } from "./AnalysisSkeleton";
 
 // Lucide mapping specifically requested as emojis are forbidden
 const IconMap: Record<string, LucideIcon> = {
@@ -34,8 +36,16 @@ const IconMap: Record<string, LucideIcon> = {
 export default function InsightPanel({
   profileData,
 }: {
-  profileData: NeighborhoodProfile;
+  profileData: NeighborhoodProfile | null;
 }) {
+  const { isAnalyzing, currentStage } = useSimulationStore(
+    (state) => state.analysisState
+  );
+
+  if (isAnalyzing && !profileData) {
+    return <AnalysisSkeleton stage={currentStage} />;
+  }
+
   if (!profileData)
     return (
       <div className="p-8 text-white/50 h-full flex flex-col justify-center items-center text-center bg-black/40 backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-3xl">
@@ -44,7 +54,7 @@ export default function InsightPanel({
           No Location Selected
         </h2>
         <p className="text-gray-400 mt-2 tracking-wide">
-          Enter a location or Places ID to generate insights.
+          Ask to explore a neighborhood to generate insights.
         </p>
       </div>
     );

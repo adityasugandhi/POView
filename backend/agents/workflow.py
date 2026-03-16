@@ -1,6 +1,6 @@
 import json
 
-from google.adk.agents import SequentialAgent
+from google.adk.agents import SequentialAgent, ParallelAgent
 from google.adk.runners import Runner
 from google.adk.sessions import InMemorySessionService
 from google.genai import types
@@ -16,24 +16,38 @@ from agents.script_writer import create_script_writer_agent
 
 
 def _build_sequential_agent() -> SequentialAgent:
-    """Builds the 3-agent sequential workflow (legacy, backward-compat)."""
-    return SequentialAgent(
-        name="NeighborhoodNarrativeAgent",
+    """Builds the 3-agent workflow with parallel research."""
+    parallel_research = ParallelAgent(
+        name="ParallelResearch",
         sub_agents=[
             create_script_writer_agent(),
             GlobeControllerAgent(name="GlobeControllerAgent"),
+        ],
+    )
+    
+    return SequentialAgent(
+        name="NeighborhoodNarrativeAgent",
+        sub_agents=[
+            parallel_research,
             create_formatter_agent(),
         ],
     )
 
 
 def _build_narrated_tour_agent() -> SequentialAgent:
-    """Builds the 4-agent sequential workflow with NarrationPlanner."""
-    return SequentialAgent(
-        name="NarratedTourAgent",
+    """Builds the 4-agent workflow with NarrationPlanner."""
+    parallel_research = ParallelAgent(
+        name="ParallelResearch",
         sub_agents=[
             create_script_writer_agent(),
             GlobeControllerAgent(name="GlobeControllerAgent"),
+        ],
+    )
+    
+    return SequentialAgent(
+        name="NarratedTourAgent",
+        sub_agents=[
+            parallel_research,
             create_narration_planner_agent(),
             create_formatter_agent(),
         ],

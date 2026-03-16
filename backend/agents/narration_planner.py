@@ -78,7 +78,7 @@ JSON Schema:
 def create_narration_planner_agent() -> LlmAgent:
     return LlmAgent(
         name="NarrationPlannerAgent",
-        model="gemini-2.5-flash",
+        model="gemini-3.1-pro-preview",
         instruction=NARRATION_PLANNER_INSTRUCTIONS,
         output_key="narration_timeline_raw",
     )

@@ -61,7 +61,7 @@ Rules:
 
     try:
         response = client.models.generate_content(
-            model="gemini-2.5-flash",
+            model="gemini-3.1-pro-preview",
             contents=prompt,
             config=types.GenerateContentConfig(
                 temperature=0.7,

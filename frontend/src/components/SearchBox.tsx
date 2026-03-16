@@ -50,7 +50,7 @@ export default function SearchBox({
   const [inputValue, setInputValue] = useState("");
   const [selectedPlaceId, setSelectedPlaceId] = useState("");
   const [intentValue, setIntentValue] = useState("");
-  const [radiusValue, setRadiusValue] = useState(0.4);
+  const [radiusValue, setRadiusValue] = useState(1.0);
   const [suggestions, setSuggestions] = useState<Suggestion[]>([]);
   const [isOpen, setIsOpen] = useState(false);
   const [collapsed, setCollapsed] = useState(false);
@@ -247,15 +247,15 @@ export default function SearchBox({
           <input
             type="range"
             min="0.1"
-            max="1.0"
+            max="50"
             step="0.1"
             value={radiusValue}
             onChange={(e) => setRadiusValue(parseFloat(e.target.value))}
             disabled={isAnalyzing}
             className="flex-1 accent-cyan-400 h-1 bg-white/20 rounded-lg appearance-none cursor-pointer"
           />
-          <span className="text-xs text-white uppercase font-bold w-12 text-right">
-            {radiusValue.toFixed(1)} mi
+          <span className="text-xs text-white uppercase font-bold w-16 text-right">
+            {radiusValue >= 10 ? `${radiusValue.toFixed(0)} mi` : `${radiusValue.toFixed(1)} mi`}
           </span>
         </div>
 

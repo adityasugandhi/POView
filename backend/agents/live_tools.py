@@ -10,8 +10,23 @@ from services.places_service import (
 )
 from services.gemini_client import parse_contextual_intent
 from services.weather_service import fetch_weather_forecast
-from agents.workflow import run_neighborhood_workflow, run_narrated_tour_workflow
+from services.streaming_workflow import (
+    run_streaming_workflow,
+    run_streaming_recommendations,
+    run_streaming_tour_recommendations,
+)
 from agents.waypoint_utils import compute_waypoints_for_places
+import contextvars
+
+# Context variable used to track the current active session in live tools
+current_session_id = contextvars.ContextVar("current_session_id", default=None)
+active_ws_senders = {}
+
+def _get_ws_sender():
+    """Retrieve the active WebSocket sender based on the current context."""
+    sess_id = current_session_id.get()
+    sender = active_ws_senders.get(sess_id)
+    return sender if sender else lambda msg: None
 from services.narration_generator import generate_place_narrations
 from agents.narration_planner import compute_trajectory_timestamps
 
@@ -101,97 +116,65 @@ async def search_neighborhood(place_query: str, intent: str = "general explorati
     if not place_id:
         return {"error": "Could not resolve place ID from autocomplete."}
 
-    # 2. Get full place details
+    # 2. Get full place details to fetch place_name quickly
     location_details = await get_places_details(place_id)
-    if not location_details or not location_details.get("geometry"):
-        return {"error": "Could not retrieve location details."}
+    if not location_details or not location_details.get("name"):
+        place_name = place_query
+    else:
+        place_name = location_details.get("name")
 
-    lat = location_details["geometry"].get("location", {}).get("lat")
-    lng = location_details["geometry"].get("location", {}).get("lng")
-    if not lat or not lng:
-        return {"error": "Location geometry is invalid."}
-
-    # 3. Get nearby places and weather in parallel
-    nearby_places, weather = await asyncio.gather(
-        get_nearby_places(lat, lng),
-        fetch_weather_forecast(lat, lng),
+    # 3. Launch the streaming pipeline in the background
+    asyncio.create_task(
+        run_streaming_workflow(
+            place_id=place_id,
+            intent=intent,
+            send_to_frontend=_get_ws_sender(),
+            workflow_type="neighborhood"
+        )
     )
 
-    # 4. Run the full agent workflow
-    try:
-        result = await run_neighborhood_workflow(
-            place_id=place_id,
-            location_details=location_details,
-            nearby_places=nearby_places,
-            weather=weather,
-            intent=intent,
-        )
-    except Exception as e:
-        return {"error": f"Neighborhood analysis failed: {str(e)}"}
-
-    profile_data = result.get("profile_data", {})
-    visualization_plan = result.get("visualization_plan", {})
-
+    # 4. Return lightweight ack immediately (< 1s total tool time)
     return {
-        "place_id": place_id,
-        "place_name": location_details.get("name", place_query),
-        "location": {"lat": lat, "lng": lng},
-        "viewport": location_details.get("geometry", {}).get("viewport"),
-        "weather": weather,
-        "profile": profile_data,
-        "visualization_plan": visualization_plan,
+        "status": "analysis_started",
+        "place_name": place_name,
+        "message": f"Analysis of {place_name} is underway. Results will stream progressively."
     }
 
 
-async def get_recommendations(place_query: str, intent: str, radius: float = 0.4, current_lat: float | None = None, current_lng: float | None = None) -> dict:
+async def get_recommendations(place_query: str, intent: str, radius: float = 1.0, current_lat: float | None = None, current_lng: float | None = None) -> dict:
     """Get specific place recommendations near a location. Use this when the user
     asks for recommendations like restaurants, cafes, parks, etc.
 
     Args:
         place_query: The location name to search near (e.g. "Williamsburg Brooklyn").
         intent: What type of places to find (e.g. "best pizza", "quiet parks", "live music venues").
-        radius: Search radius in miles (0.1 to 1.0). Default 0.4 miles.
+        radius: Search radius in miles (0.1 to 50.0). Default 1.0 mile. Use larger values (5-20) for broad city-wide searches, smaller values (0.5-2) for hyper-local results.
         current_lat: Optional latitude of the user's current viewport center for location-biased search.
         current_lng: Optional longitude of the user's current viewport center for location-biased search.
     """
-    # 1. Resolve location
-    predictions = await get_autocomplete_predictions(place_query, lat=current_lat, lng=current_lng)
+    # 1. Autocomplete to resolve place quickly for the immediate response
+    predictions = await get_autocomplete_predictions(place_query)
     if not predictions:
         return {"error": f"Could not find '{place_query}'."}
 
-    place_id = predictions[0].get("placePrediction", {}).get("placeId", "")
-    if not place_id:
-        return {"error": "Could not resolve place."}
+    place_name = place_query
 
-    # 2. Get location details and parse intent in parallel
-    location_details, intent_parsed_result = await asyncio.gather(
-        get_places_details(place_id),
-        parse_contextual_intent(intent),
-        return_exceptions=True,
+    # 2. Launch the streaming pipeline in the background
+    asyncio.create_task(
+        run_streaming_recommendations(
+            place_query=place_query,
+            intent=intent,
+            radius=radius,
+            send_to_frontend=_get_ws_sender()
+        )
     )
 
-    if isinstance(location_details, Exception) or not location_details or not location_details.get("geometry"):
-        return {"error": "Could not get location details."}
-
-    lat = location_details["geometry"]["location"]["lat"]
-    lng = location_details["geometry"]["location"]["lng"]
-
-    # Extract keywords from parallel intent parse
-    if isinstance(intent_parsed_result, Exception):
-        keywords = [intent]
-    else:
-        keywords = intent_parsed_result.get("keywords", [intent])
-
-    # 3. Search for places
-    results = await contextual_places_search(lat, lng, radius, keywords)
-    if not results:
-        return {"error": "No matching places found in that area."}
-
+    # 3. Return lightweight ack immediately
     return {
-        "place_query": place_query,
-        "intent": intent,
-        "location": {"lat": lat, "lng": lng},
-        "recommendations": results,
+        "status": "analysis_started",
+        "place_name": place_name,
+        "message": f"Finding recommendations near {place_name}. Results will stream progressively.",
+        "action": "get_recommendations"
     }
 
 
@@ -231,45 +214,29 @@ async def start_narrated_tour(place_query: str, intent: str = "general explorati
     if not place_id:
         return {"error": "Could not resolve place ID."}
 
+    # 2. Get location details quickly
     location_details = await get_places_details(place_id)
-    if not location_details or not location_details.get("geometry"):
-        return {"error": "Could not retrieve location details."}
+    place_name = location_details.get("name") if location_details else place_query
 
-    lat = location_details["geometry"]["location"]["lat"]
-    lng = location_details["geometry"]["location"]["lng"]
-
-    # 2. Get nearby places and weather
-    nearby_places, weather = await asyncio.gather(
-        get_nearby_places(lat, lng),
-        fetch_weather_forecast(lat, lng),
+    # 3. Launch the streaming pipeline in the background
+    asyncio.create_task(
+        run_streaming_workflow(
+            place_id=place_id,
+            intent=intent,
+            send_to_frontend=_get_ws_sender(),
+            workflow_type="narrated_tour"
+        )
     )
 
-    # 3. Run the enhanced 4-agent narrated tour pipeline
-    try:
-        result = await run_narrated_tour_workflow(
-            place_id=place_id,
-            location_details=location_details,
-            nearby_places=nearby_places,
-            weather=weather,
-            intent=intent,
-        )
-    except Exception as e:
-        return {"error": f"Narrated tour generation failed: {str(e)}"}
-
     return {
-        "action": "start_narrated_tour",
-        "place_id": place_id,
-        "place_name": location_details.get("name", place_query),
-        "location": {"lat": lat, "lng": lng},
-        "viewport": location_details.get("geometry", {}).get("viewport"),
-        "weather": weather,
-        "profile": result.get("profile_data", {}),
-        "narration_timeline": result.get("narration_timeline", {}),
-        "visualization_plan": result.get("visualization_plan", {}),
+        "status": "analysis_started",
+        "place_name": place_name,
+        "message": f"Planning narrated tour of {place_name}. Results will stream progressively.",
+        "action": "start_narrated_tour"
     }
 
 
-async def tour_recommendations(place_query: str, intent: str, radius: float = 0.4, current_lat: float | None = None, current_lng: float | None = None) -> dict:
+async def tour_recommendations(place_query: str, intent: str, radius: float = 1.0, current_lat: float | None = None, current_lng: float | None = None) -> dict:
     """Find recommended places near a location AND start a narrated drone tour
     visiting each one. Use this when the user wants to both discover places AND
     take a guided flyover — e.g. "show me the best cafes near Times Square
@@ -278,138 +245,29 @@ async def tour_recommendations(place_query: str, intent: str, radius: float = 0.
     Args:
         place_query: The area to search in (e.g. "Times Square Manhattan").
         intent: What type of places to find and tour (e.g. "best cafes", "rooftop bars").
-        radius: Search radius in miles (0.1 to 1.0). Default 0.4 miles.
-        current_lat: Optional latitude of the user's current viewport center for location-biased search.
-        current_lng: Optional longitude of the user's current viewport center for location-biased search.
+        radius: Search radius in miles (0.1 to 50.0). Default 1.0 mile. Use larger values (5-20) for broad city-wide searches, smaller values (0.5-2) for hyper-local results.
     """
-    # 1. Resolve location and parse intent in parallel
-    predictions, intent_parsed_result = await asyncio.gather(
-        get_autocomplete_predictions(place_query, lat=current_lat, lng=current_lng),
-        parse_contextual_intent(intent),
-        return_exceptions=True,
+    # 1. Autocomplete to resolve place quickly
+    predictions = await get_autocomplete_predictions(place_query)
+    if not predictions:
+        return {"error": f"Could not find '{place_query}'."}
+        
+    place_name = place_query
+
+    # 2. Launch the streaming pipeline in the background
+    asyncio.create_task(
+        run_streaming_tour_recommendations(
+            place_query=place_query,
+            intent=intent,
+            radius=radius,
+            send_to_frontend=_get_ws_sender()
+        )
     )
 
-    if isinstance(predictions, Exception) or not predictions:
-        return {"error": f"Could not find '{place_query}'."}
-    place_id = predictions[0].get("placePrediction", {}).get("placeId", "")
-    if not place_id:
-        return {"error": "Could not resolve place."}
-    location_details = await get_places_details(place_id)
-    if not location_details or not location_details.get("geometry"):
-        return {"error": "Could not get location details."}
-    lat = location_details["geometry"]["location"]["lat"]
-    lng = location_details["geometry"]["location"]["lng"]
-    area_name = location_details.get("name", place_query)
-
-    # 2. Extract keywords from parallel intent parse
-    if isinstance(intent_parsed_result, Exception):
-        keywords = [intent]
-    else:
-        keywords = intent_parsed_result.get("keywords", [intent])
-
-    # 3. Search for places
-    recommendations = await contextual_places_search(lat, lng, radius, keywords)
-    if not recommendations:
-        return {"error": "No matching places found in that area."}
-
-    # 4. Generate waypoints, narration, and weather in parallel
-    try:
-        all_waypoints, narration_result, weather = await asyncio.gather(
-            compute_waypoints_for_places(lat, lng, recommendations),
-            generate_place_narrations(area_name, intent, recommendations, ""),
-            fetch_weather_forecast(lat, lng),
-        )
-    except Exception as e:
-        return {"error": f"Tour generation failed: {str(e)}"}
-
-    # 5. Assemble NarrationTimeline segments
-    narration_segments = narration_result.get("segments", [])
-    segments = []
-    poi_index = 0
-
-    for i, wp in enumerate(all_waypoints):
-        wp_dict = wp.model_dump() if hasattr(wp, "model_dump") else wp
-        label = wp_dict.get("label", "")
-
-        if label == "Overview":
-            narr_text = f"Let's take in the full panorama of {area_name} from above."
-            poi_names, transition, ambient = [], "Rising for an aerial overview", ""
-        elif label == "Descent":
-            narr_text = f"Now descending toward street level to explore {intent} spots."
-            poi_names, transition, ambient = [], "Descending toward the neighborhood", ""
-        elif label == "Return":
-            narr_text = f"Climbing back up for one final look at {area_name}."
-            poi_names, transition, ambient = [], "Ascending to overview altitude", ""
-        elif label.startswith("Transit"):
-            narr_text = ""
-            poi_names, transition, ambient = [], "Following the road", ""
-        else:
-            # POI stop — use narration from generate_place_narrations
-            if poi_index < len(narration_segments):
-                seg_data = narration_segments[poi_index]
-                narr_text = seg_data.get("narration_text", f"Here we see {label}.")
-                poi_names = seg_data.get("poi_names", [label])
-                transition = seg_data.get("transition_description", f"Approaching {label}")
-                ambient = seg_data.get("ambient_notes", "")
-            else:
-                narr_text = f"Here we see {label}."
-                poi_names, transition, ambient = [label], f"Approaching {label}", ""
-            poi_index += 1
-
-        speech_duration = round(len(narr_text.split()) / 2.5, 2) if narr_text else 0.0
-
-        segments.append({
-            "segment_id": i,
-            "waypoint": wp_dict,
-            "narration_text": narr_text,
-            "poi_names": poi_names,
-            "poi_context": {},
-            "transition_description": transition,
-            "estimated_speech_duration_s": speech_duration,
-            "cumulative_start_time_s": 0.0,
-            "ambient_notes": ambient,
-        })
-
-    # 6. Recompute timing deterministically
-    opening_text = narration_result.get("opening_narration", "")
-    opening_duration = len(opening_text.split()) / 2.5
-    cumulative = opening_duration
-
-    for seg in segments:
-        seg["cumulative_start_time_s"] = round(cumulative, 2)
-        wp = seg["waypoint"]
-        cumulative += seg["estimated_speech_duration_s"] + wp.get("duration", 3) + wp.get("pause_after", 1)
-
-    closing_text = narration_result.get("closing_narration", "")
-    total_duration = round(cumulative + len(closing_text.split()) / 2.5, 2)
-
-    # 7. Compute trajectory timestamps
-    trajectory = compute_trajectory_timestamps(segments, opening_duration)
-
-    # 8. Build NarrationTimeline
-    narration_timeline = {
-        "place_name": area_name,
-        "place_id": place_id,
-        "intent": intent,
-        "total_segments": len(segments),
-        "total_estimated_duration_s": total_duration,
-        "opening_narration": opening_text or f"Welcome to {area_name}!",
-        "closing_narration": closing_text or "That wraps up our tour!",
-        "segments": segments,
-        "weather_context": weather or {},
-        "trajectory_timestamps": trajectory,
-    }
-
-    wp_dicts = [wp.model_dump() if hasattr(wp, "model_dump") else wp for wp in all_waypoints]
-
+    # 3. Return lightweight ack immediately
     return {
-        "action": "start_narrated_tour",
-        "place_id": place_id,
-        "place_name": area_name,
-        "location": {"lat": lat, "lng": lng},
-        "viewport": location_details.get("geometry", {}).get("viewport"),
-        "weather": weather,
-        "recommendations": recommendations,
-        "narration_timeline": narration_timeline,
-        "visualization_plan": {"waypoints": wp_dicts, "total_duration": total_duration},
+        "status": "analysis_started",
+        "place_name": place_name,
+        "message": f"Planning recommended tour of {place_name}. Results will stream progressively.",
+        "action": "tour_recommendations"
     }

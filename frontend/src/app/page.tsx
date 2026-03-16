@@ -60,6 +60,8 @@ export default function Home() {
   const selectedRecommendation = useSimulationStore(
     (s) => s.selectedRecommendation,
   );
+  const insightPanelVisible = useSimulationStore((s) => s.insightPanelVisible);
+  const recommendationsPanelVisible = useSimulationStore((s) => s.recommendationsPanelVisible);
   const loading = useSimulationStore((s) => s.loading);
   const error = useSimulationStore((s) => s.error);
   const recenterTrigger = useSimulationStore((s) => s.recenterTrigger);
@@ -619,7 +621,6 @@ export default function Home() {
             )}
           </div>
 
-          {/* Floating Insight Panel */}
           <div className="pointer-events-auto flex-1 overflow-hidden h-0 rounded-3xl">
             {loading || isScanning ? (
               <div className="p-8 text-center text-white/50 h-full flex flex-col items-center justify-center bg-black/40 backdrop-blur-2xl border border-white/10 shadow-[0_8px_32px_0_rgba(0,0,0,0.5)] rounded-3xl">
@@ -629,7 +630,7 @@ export default function Home() {
                 </p>
               </div>
             ) : (
-              profileData && (
+              (profileData || insightPanelVisible) && (
                 <div className="h-full">
                   <InsightPanel profileData={profileData} />
                 </div>
@@ -638,12 +639,11 @@ export default function Home() {
           </div>
         </div>
 
-        {/* Right Floating Recommendations Panel / Scan Loader */}
         {isScanning ? (
           <div className="absolute inset-y-6 right-6 w-[400px] z-10 hidden lg:flex flex-col">
             <GridScanLoader />
           </div>
-        ) : recommendationsData && recommendationsData.length > 0 ? (
+        ) : (recommendationsData && recommendationsData.length > 0) || recommendationsPanelVisible ? (
           <div className="absolute inset-y-6 right-6 w-[400px] z-10 hidden lg:flex flex-col">
             <RecommendationsPanel
               recommendations={recommendationsData}

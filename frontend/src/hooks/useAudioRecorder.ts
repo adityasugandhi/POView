@@ -6,6 +6,7 @@ interface UseAudioRecorderOptions {
 
 export function useAudioRecorder({ onChunk }: UseAudioRecorderOptions) {
   const [isRecording, setIsRecording] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const audioCtxRef = useRef<AudioContext | null>(null);
   const workletNodeRef = useRef<AudioWorkletNode | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -47,7 +48,22 @@ export function useAudioRecorder({ onChunk }: UseAudioRecorderOptions) {
     audioCtxRef.current = null;
 
     setIsRecording(false);
+    setIsMuted(false);
   }, []);
 
-  return { start, stop, isRecording };
+  const mute = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getAudioTracks().forEach((t) => (t.enabled = false));
+      setIsMuted(true);
+    }
+  }, []);
+
+  const unmute = useCallback(() => {
+    if (streamRef.current) {
+      streamRef.current.getAudioTracks().forEach((t) => (t.enabled = true));
+      setIsMuted(false);
+    }
+  }, []);
+
+  return { start, stop, isRecording, isMuted, mute, unmute };
 }

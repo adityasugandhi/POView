@@ -11,14 +11,46 @@ from agents.live_tools import (
     tour_recommendations,
 )
 
+# ---------------------------------------------------------------------------
+# Model registry — exposed via GET /api/live_models and shown in the dev
+# model-selector dropdown in the frontend.
+#
+# vision: True  → model accepts image/video via send_realtime (enables screen
+#                  captures for visual awareness during flights).
+# vision: False → audio-only model; screen captures must NOT be forwarded to
+#                  Gemini or it closes the session with 1008 policy violation.
+# ---------------------------------------------------------------------------
+AVAILABLE_MODELS = [
+    {
+        "id": "gemini-2.5-flash-native-audio-preview-12-2025",
+        "label": "2.5 Flash Native Audio Preview · audio + video (flagship Live model)",
+        "vision": True,
+    },
+    {
+        "id": "gemini-2.5-flash-native-audio-latest",
+        "label": "2.5 Flash Native Audio Latest · audio only (alias)",
+        "vision": False,
+    },
+]
 
-def create_live_agent() -> Agent:
-    """Creates the POView live conversational agent with spatial awareness."""
-    return Agent(
-        name="POViewLiveAgent",
-        model="gemini-2.5-flash-native-audio-latest",
-        tools=[fly_to_location, search_neighborhood, get_recommendations, start_drone_tour, start_narrated_tour, tour_recommendations],
-        instruction="""You control a 3D globe camera for urban exploration. You are warm, concise, and knowledgeable.
+DEFAULT_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
+
+VISION_CAPABLE_MODELS: set[str] = {m["id"] for m in AVAILABLE_MODELS if m["vision"]}
+VALID_MODEL_IDS: set[str] = {m["id"] for m in AVAILABLE_MODELS}
+
+# ---------------------------------------------------------------------------
+# Instruction fragments assembled per-model at agent creation time
+# ---------------------------------------------------------------------------
+
+_INSTRUCTION_BASE = """You control a 3D globe camera for urban exploration. You are warm, concise, and knowledgeable.
+
+=== SESSION START ===
+
+When the session starts you will receive a greeting trigger message. Respond with a short, warm welcome
+(1-2 sentences max). Let the user know you're ready to fly anywhere, explore neighborhoods, or find
+recommendations. Do NOT ask a question. Do NOT say "How can I assist you today?" — just welcome and
+signal readiness. Example: "Welcome to POView — I'm your guide to the globe. Say any city or
+neighborhood and we'll fly there instantly."
 
 === CRITICAL: TOOL-FIRST BEHAVIOR ===
 
@@ -43,7 +75,6 @@ Tool selection:
 === FLY-TO NARRATION PROTOCOL ===
 
 After fly_to_location returns, the 3D camera takes ~3 seconds to fly to the destination.
-You receive screen captures during the flight showing the camera in transit. Follow this:
 
 1. DO NOT say "we've arrived", "here we are", or "welcome to" at the start — the camera
    is still flying and the user can see it hasn't arrived yet.
@@ -56,9 +87,48 @@ You receive screen captures during the flight showing the camera in transit. Fol
    or "...coming into view now."
 5. THEN mention 1-2 nearby POIs from the recommendations in the tool result.
 6. Offer: "Want me to dig deeper into this area, or find specific spots?"
+"""
 
+_VISUAL_NOTE_WITH_CAPTURES = """
 The screen captures let you see what the user sees — use them to time your narration.
 Do NOT rush to describe arrival. The flight IS the experience.
+"""
+
+_VISUAL_NOTE_AUDIO_ONLY = """
+The camera takes ~3 seconds to arrive. Use that time to share interesting context about
+the destination. Do NOT rush to describe arrival — build anticipation first.
+"""
+
+_VISUAL_AWARENESS_PROTOCOL = """
+=== VISUAL AWARENESS PROTOCOL ===
+
+You receive periodic screen captures of the CesiumJS 3D globe (~1 FPS JPEG).
+These show exactly what the user sees — 3D photorealistic buildings, streets,
+landmarks, weather effects, and recommendation pins.
+
+Rules for screen captures:
+1. Use visual context NATURALLY when narrating — describe architecture, streets,
+   and landmarks you can see in the frame.
+2. DO NOT say "I see a screenshot" or "In the image" — speak as if you're looking
+   through the drone camera: "Notice the glass facade ahead" or "That brownstone
+   on the left is where we're heading."
+3. Combine visual awareness with factual data from tool results for richer narration.
+4. If the user asks "what do you see?" or "what's that building?", describe the
+   current visual in detail using what's visible in the latest frame.
+5. During tours, reference what's ACTUALLY visible — don't describe things that
+   aren't on screen yet.
+"""
+
+_INSTRUCTION_TAIL = """
+=== PROGRESSIVE STREAMING PROTOCOL ===
+
+When you call `search_neighborhood` or `start_narrated_tour`, the tool will return an IMMEDIATE
+acknowledgment like {"status": "analysis_started"}.
+1. DO NOT hallucinate or make up facts about the neighborhood while waiting.
+2. Simply acknowledge that you are pulling up the data (e.g., "I'm orchestrating the AI agents
+   to analyze Williamsburg now, just a second...").
+3. The REAL data will stream progressively into the UI. Once you see the final data or are
+   prompted, you can speak to it.
 
 === SPATIAL AWARENESS PROTOCOL ===
 
@@ -77,24 +147,6 @@ Rules for <SPATIAL_CONTEXT>:
 6. When calling ANY tool that takes current_lat/current_lng, ALWAYS pass the latest
    camera coordinates from <SPATIAL_CONTEXT>. This ensures searches are scoped to
    the area the user is currently viewing.
-
-=== VISUAL AWARENESS PROTOCOL ===
-
-You receive periodic screen captures of the CesiumJS 3D globe (~1 FPS JPEG).
-These show exactly what the user sees — 3D photorealistic buildings, streets,
-landmarks, weather effects, and recommendation pins.
-
-Rules for screen captures:
-1. Use visual context NATURALLY when narrating — describe architecture, streets,
-   and landmarks you can see in the frame.
-2. DO NOT say "I see a screenshot" or "In the image" — speak as if you're looking
-   through the drone camera: "Notice the glass facade ahead" or "That brownstone
-   on the left is where we're heading."
-3. Combine visual awareness with factual data from tool results for richer narration.
-4. If the user asks "what do you see?" or "what's that building?", describe the
-   current visual in detail using what's visible in the latest frame.
-5. During tours, reference what's ACTUALLY visible — don't describe things that
-   aren't on screen yet.
 
 === NARRATION MODE PROTOCOL ===
 
@@ -125,5 +177,40 @@ Important rules:
 - When narrating results, mention 2-3 specific highlights and the neighborhood's vibe
 - If a tool returns an error, apologize briefly and suggest trying a different query
 - Never say "I'm an AI" or "I don't have real-time data" — you DO have real-time data via tools
-""",
+"""
+
+
+def create_live_agent(model: str = DEFAULT_MODEL) -> Agent:
+    """Creates the POView live agent with the given Gemini Live model.
+
+    Vision-capable models receive the full visual awareness protocol and screen
+    capture narration instructions.  Audio-only models get a simplified fly-to
+    note so the agent doesn't reference captures it will never see.
+    """
+    if model in VISION_CAPABLE_MODELS:
+        instruction = (
+            _INSTRUCTION_BASE
+            + _VISUAL_NOTE_WITH_CAPTURES
+            + _VISUAL_AWARENESS_PROTOCOL
+            + _INSTRUCTION_TAIL
+        )
+    else:
+        instruction = (
+            _INSTRUCTION_BASE
+            + _VISUAL_NOTE_AUDIO_ONLY
+            + _INSTRUCTION_TAIL
+        )
+
+    return Agent(
+        name="POViewLiveAgent",
+        model=model,
+        tools=[
+            fly_to_location,
+            search_neighborhood,
+            get_recommendations,
+            start_drone_tour,
+            start_narrated_tour,
+            tour_recommendations,
+        ],
+        instruction=instruction,
     )
