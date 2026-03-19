@@ -4,12 +4,16 @@ import os
 import redis.asyncio as redis
 
 # Architecturally mandated Redis integration with 72-hour TTL
-redis_client = redis.Redis(
-    host=os.getenv("REDIS_HOST", "localhost"),
-    port=6379,
-    db=0,
-    decode_responses=True
-)
+_redis_url = os.getenv("REDIS_URL")
+if _redis_url:
+    redis_client = redis.from_url(_redis_url, decode_responses=True)
+else:
+    redis_client = redis.Redis(
+        host=os.getenv("REDIS_HOST", "localhost"),
+        port=int(os.getenv("REDIS_PORT", 6379)),
+        db=0,
+        decode_responses=True,
+    )
 
 async def get_cached_profile(place_id: str) -> dict | None:
     """Retrieve validated JSON payload from Redis using exact Google Places ID."""
