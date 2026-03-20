@@ -75,6 +75,20 @@ jobs:
           docker pull ${{ env.BACKEND_IMAGE }}:latest
           docker pull ${{ env.FRONTEND_IMAGE }}:latest
 
+      - name: Create .env file
+        run: |
+          cat > .env << 'ENVEOF'
+          GOOGLE_MAPS_API_KEY=${{ secrets.GOOGLE_MAPS_API_KEY }}
+          GEMINI_API_KEY=${{ secrets.GEMINI_API_KEY }}
+          REDIS_HOST=redis
+          CORS_ORIGINS=https://poview.js.org
+          NEXT_PUBLIC_BACKEND_URL=${{ secrets.NEXT_PUBLIC_BACKEND_URL }}
+          NEXT_PUBLIC_WS_URL=${{ secrets.NEXT_PUBLIC_WS_URL }}
+          NEXT_PUBLIC_GOOGLE_MAPS_API_KEY=${{ secrets.NEXT_PUBLIC_GOOGLE_MAPS_API_KEY }}
+          NEXT_PUBLIC_CESIUM_ION_TOKEN=${{ secrets.NEXT_PUBLIC_CESIUM_ION_TOKEN }}
+          ENVEOF
+          sed -i 's/^          //' .env
+
       - name: Deploy stack
         run: docker compose -f docker-compose.yml up -d --remove-orphans
         env:
@@ -91,5 +105,5 @@ jobs:
         run: |
           echo "Waiting for services to start..."
           sleep 15
-          curl -f http://localhost:8000/healthz || exit 1
+          docker compose exec -T backend python -c "import urllib.request; r=urllib.request.urlopen('http://localhost:8000/healthz'); print(r.read().decode())" || exit 1
           echo "Backend healthy"
