@@ -33,9 +33,11 @@ export function useLiveWebSocket({
       if (wsRef.current) return Promise.resolve();
 
       return new Promise<void>((resolve, reject) => {
+        const wsBase =
+          process.env.NEXT_PUBLIC_WS_URL || "ws://localhost:8000";
         const url = model
-          ? `ws://localhost:8000/ws/live/${sessionId}?model=${encodeURIComponent(model)}`
-          : `ws://localhost:8000/ws/live/${sessionId}`;
+          ? `${wsBase}/ws/live/${sessionId}?model=${encodeURIComponent(model)}`
+          : `${wsBase}/ws/live/${sessionId}`;
         const ws = new WebSocket(url);
         ws.binaryType = "arraybuffer";
         wsRef.current = ws;

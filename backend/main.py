@@ -46,13 +46,23 @@ from agents.live_tools import current_session_id, active_ws_senders
 
 app = FastAPI(title="GroundLevel AI Platform")
 
+allowed_origins = os.getenv(
+    "CORS_ORIGINS", "http://localhost:3000,http://127.0.0.1:3000"
+).split(",")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],
+    allow_origins=allowed_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.get("/healthz")
+async def healthz():
+    """Health check endpoint for Docker and monitoring."""
+    return {"status": "ok"}
 
 # --- Live Agent Setup ---
 # Session service is shared; agents/runners are created per-session so each
