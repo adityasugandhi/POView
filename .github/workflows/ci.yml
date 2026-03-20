@@ -3,6 +3,9 @@ name: CI
 on:
   pull_request:
     branches: [main]
+  push:
+    branches: [feat/cicd-docker-pipeline]
+  workflow_dispatch:
 
 concurrency:
   group: ci-${{ github.ref }}
