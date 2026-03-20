@@ -10,8 +10,8 @@ concurrency:
 
 env:
   REGISTRY: ghcr.io
-  BACKEND_IMAGE: ghcr.io/shazam6565/poview-backend
-  FRONTEND_IMAGE: ghcr.io/shazam6565/poview-frontend
+  BACKEND_IMAGE: ghcr.io/${{ github.repository_owner }}/poview-backend
+  FRONTEND_IMAGE: ghcr.io/${{ github.repository_owner }}/poview-frontend
 
 jobs:
   build-and-push:
@@ -78,6 +78,8 @@ jobs:
       - name: Deploy stack
         run: docker compose -f docker-compose.yml up -d --remove-orphans
         env:
+          BACKEND_IMAGE: ${{ env.BACKEND_IMAGE }}
+          FRONTEND_IMAGE: ${{ env.FRONTEND_IMAGE }}
           GOOGLE_MAPS_API_KEY: ${{ secrets.GOOGLE_MAPS_API_KEY }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
           NEXT_PUBLIC_BACKEND_URL: ${{ secrets.NEXT_PUBLIC_BACKEND_URL }}
