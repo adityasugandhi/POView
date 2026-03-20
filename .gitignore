@@ -10,3 +10,9 @@ logs/
 *.log
 upgrades/scratch.txt
 __pycache__/
+
+# Docker / deployment
+certbot/
+docker-volumes/
+actions-runner/
+*.pem
